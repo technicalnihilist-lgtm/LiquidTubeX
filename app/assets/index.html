@@ -1048,13 +1048,22 @@ async function find(){
   /* LiquidTube X: when the native NewPipeExtractor bridge is attached, the
      search runs there and window.onVideosReceived paints the results. Without
      it (the build.sh APK) nothing answers, and the skeleton stays put. */
-  console.log('[LT] bridge present: '+!!(window.LiquidTubeX&&window.LiquidTubeX.searchVideos));
-  if(window.LiquidTubeX&&window.LiquidTubeX.searchVideos){
+  const hasBridge=!!(window.LiquidTubeX&&window.LiquidTubeX.searchVideos);
+  console.log('[LT] bridge present: '+hasBridge);
+  if(!hasBridge){
+    /* No native bridge in this build: say so instead of showing an empty result
+       list that looks like "the search found nothing". */
+    $('results').innerHTML='<div class="empty">Native extractor bridge not found in this build, '
+      +'so search cannot run. Install the build made by build-extractor.sh or by Gradle.</div>';
+    return;
+  }
+  if(hasBridge){
     bridgeAnswered=false;
     setTimeout(function(){
       if(!bridgeAnswered){
-        $('results').innerHTML='<div class="empty">The extractor did not answer within 25s. '
-          +'Check adb logcat | grep LiquidTube for the searchVideos / results lines.</div>';
+        $('results').innerHTML='<div class="empty">The bridge is present but the extractor did not '
+          +'answer within 25s. That points at the native search (network, or an exception inside '
+          +'VideoExtractor) rather than the page.</div>';
       }
     },25000);
     try{LiquidTubeX.searchVideos(t)}catch(e){
