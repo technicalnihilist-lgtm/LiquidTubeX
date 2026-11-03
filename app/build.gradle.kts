@@ -8,11 +8,11 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.liquidtube.app"
+        applicationId = "com.liquidtubex.app"
         minSdk = 21
         targetSdk = 34
-        versionCode = 48
-        versionName = "7.23"
+        versionCode = 1
+        versionName = "1.0"
     }
 
     // Keeps the existing no-Gradle layout: sources, resources and the web UI

@@ -1,4 +1,4 @@
-package com.liquidtube.app;
+package com.liquidtubex.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
