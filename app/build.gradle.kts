@@ -19,7 +19,9 @@ android {
     // stay exactly where build.sh expects them.
     sourceSets["main"].apply {
         manifest.srcFile("AndroidManifest.xml")
-        java.srcDirs("java")
+        // "java" is what build.sh compiles; "java-extractor" holds sources that
+        // need the NewPipeExtractor jar and therefore only build under Gradle.
+        java.srcDirs("java", "java-extractor")
         res.srcDirs("res")
         assets.srcDirs("assets")
     }
