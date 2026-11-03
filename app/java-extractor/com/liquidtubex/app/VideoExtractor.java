@@ -50,7 +50,9 @@ public class VideoExtractor {
                             ServiceList.YouTube,
                             ServiceList.YouTube
                                     .getSearchQHFactory()
-                                    .fromQuery(query, null, null)
+                                    // contentFilters must be an empty list, not null:
+                                    // the factory calls isEmpty() on it and throws otherwise.
+                                    .fromQuery(query, java.util.Collections.emptyList(), "")
                     );
 
                     List<Video> videos = new ArrayList<>();
