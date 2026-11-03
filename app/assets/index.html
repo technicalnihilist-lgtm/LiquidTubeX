@@ -1045,6 +1045,15 @@ async function find(){
   if(!t){$('results').innerHTML='';return}
   const id=++seq;
   $('results').innerHTML=LDR+'<div class="skl"></div><div class="skl"></div>';
+  /* LiquidTube X: when the native NewPipeExtractor bridge is attached, the
+     search runs there and window.onVideosReceived paints the results. Without
+     it (the build.sh APK) nothing answers, and the skeleton stays put. */
+  if(window.LiquidTubeX&&window.LiquidTubeX.searchVideos){
+    try{LiquidTubeX.searchVideos(t)}catch(e){
+      $('results').innerHTML='<div class="empty">Search failed. '+esc(e.message||'')+'</div>'
+    }
+    return;
+  }
   try{
     const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:t});
     if(id!==seq)return;
@@ -1060,6 +1069,29 @@ async function find(){
   }
 }
 qi.oninput=find;
+
+/* ---------- native extractor bridge ---------- */
+/* The bridge hands over a JSON string, so it is parsed here. Each item is
+   {title,url,thumbnail}; the id is lifted out of the watch URL so the existing
+   card and player code keeps working unchanged. */
+function idOfUrl(u){
+  const m=/(?:v=|youtu\.be\/|\/shorts\/|\/embed\/)([A-Za-z0-9_-]{11})/.exec(String(u||''));
+  return m?m[1]:'';
+}
+window.onVideosReceived=function(json){
+  let items=[];
+  try{items=JSON.parse(json)||[]}catch(e){items=[]}
+  const list=items.map(it=>{
+    const id=idOfUrl(it&&it.url);
+    return id?vObj(id,{t:it.title||'',c:'',ch:'',pub:'',cat:'Result'}):null;
+  }).filter(Boolean);
+  $('results').innerHTML=list.length
+    ?list.map(cardOf).join('')
+    :'<div class="empty">No videos match that.</div>';
+};
+window.onVideoError=function(message){
+  $('results').innerHTML='<div class="empty">Search failed. '+esc(String(message||''))+'</div>';
+};
 
 /* ---------- global taps ---------- */
 document.addEventListener('click',e=>{
