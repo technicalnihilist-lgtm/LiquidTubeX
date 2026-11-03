@@ -4,41 +4,45 @@ import android.os.Handler;
 import android.os.Looper;
 
 import org.schabi.newpipe.extractor.InfoItem;
+import org.schabi.newpipe.extractor.Image;
+import org.schabi.newpipe.extractor.ServiceList;
 import org.schabi.newpipe.extractor.search.SearchInfo;
-import org.schabi.newpipe.extractor.services.ServiceList;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
- * Runs a YouTube search through NewPipeExtractor off the main thread and hands
- * the results back on it.
+ * YouTube search through NewPipeExtractor, off the main thread, results posted
+ * back on it.
  *
- * <p>Before the first call, {@code NewPipe.init(Downloader)} must have run once
- * with a {@link org.schabi.newpipe.extractor.downloader.Downloader}
- * implementation — the library ships the interface, not an implementation, and
- * every extractor call throws until it is set. That belongs in the app's
- * startup path (see MainActivity), not here.
+ * <p>{@code NewPipe.init(Downloader)} must run once at startup before any call
+ * here — the library ships the {@link org.schabi.newpipe.extractor.downloader.Downloader}
+ * interface, not an implementation, and every extractor call throws until one
+ * is set.
  */
 public class VideoExtractor {
 
+    public static class Video {
+        public String title;
+        public String url;
+        public String thumbnail;
+
+        public Video(String title, String url, String thumbnail) {
+            this.title = title;
+            this.url = url;
+            this.thumbnail = thumbnail;
+        }
+    }
+
     public interface Callback {
-        void onSuccess(List<String> videos);
+        void onSuccess(List<Video> videos);
 
         void onError(String error);
     }
 
-    private static final ExecutorService executor =
-            Executors.newSingleThreadExecutor();
-
-    private static final Handler mainHandler =
-            new Handler(Looper.getMainLooper());
-
     public static void search(String query, Callback callback) {
 
-        executor.execute(new Runnable() {
+        new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -49,30 +53,48 @@ public class VideoExtractor {
                                     .fromQuery(query, null, null)
                     );
 
-                    List<String> results = new ArrayList<>();
+                    List<Video> videos = new ArrayList<>();
 
                     for (InfoItem item : info.getRelatedItems()) {
-                        results.add(
-                                item.getName() + "\n" + item.getUrl()
-                        );
+
+                        String thumbnail = "";
+
+                        List<Image> images = item.getThumbnails();
+
+                        if (images != null && !images.isEmpty()) {
+                            thumbnail = images.get(0).getUrl();
+                        }
+
+                        videos.add(new Video(
+                                item.getName(),
+                                item.getUrl(),
+                                thumbnail
+                        ));
                     }
 
-                    mainHandler.post(new Runnable() {
+                    Handler handler = new Handler(Looper.getMainLooper());
+
+                    handler.post(new Runnable() {
                         @Override
                         public void run() {
-                            callback.onSuccess(results);
+                            callback.onSuccess(videos);
                         }
                     });
 
                 } catch (Exception e) {
-                    mainHandler.post(new Runnable() {
+
+                    final String error = e.toString();
+
+                    Handler handler = new Handler(Looper.getMainLooper());
+
+                    handler.post(new Runnable() {
                         @Override
                         public void run() {
-                            callback.onError(e.getMessage());
+                            callback.onError(error);
                         }
                     });
                 }
             }
-        });
+        }).start();
     }
 }
