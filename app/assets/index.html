@@ -1048,7 +1048,15 @@ async function find(){
   /* LiquidTube X: when the native NewPipeExtractor bridge is attached, the
      search runs there and window.onVideosReceived paints the results. Without
      it (the build.sh APK) nothing answers, and the skeleton stays put. */
+  console.log('[LT] bridge present: '+!!(window.LiquidTubeX&&window.LiquidTubeX.searchVideos));
   if(window.LiquidTubeX&&window.LiquidTubeX.searchVideos){
+    bridgeAnswered=false;
+    setTimeout(function(){
+      if(!bridgeAnswered){
+        $('results').innerHTML='<div class="empty">The extractor did not answer within 25s. '
+          +'Check adb logcat | grep LiquidTube for the searchVideos / results lines.</div>';
+      }
+    },25000);
     try{LiquidTubeX.searchVideos(t)}catch(e){
       $('results').innerHTML='<div class="empty">Search failed. '+esc(e.message||'')+'</div>'
     }
@@ -1074,6 +1082,7 @@ qi.oninput=find;
 /* The bridge hands over a JSON string, so it is parsed here. Each item is
    {title,url,thumbnail}; the id is lifted out of the watch URL so the existing
    card and player code keeps working unchanged. */
+let bridgeAnswered=false;
 function idOfUrl(u){
   const m=/(?:v=|youtu\.be\/|\/shorts\/|\/embed\/)([A-Za-z0-9_-]{11})/.exec(String(u||''));
   return m?m[1]:'';
@@ -1081,6 +1090,8 @@ function idOfUrl(u){
 window.onVideosReceived=function(json){
   let items=[];
   try{items=JSON.parse(json)||[]}catch(e){items=[]}
+  bridgeAnswered=true;
+  console.log('[LT] onVideosReceived items='+items.length);
   const list=items.map(it=>{
     const id=idOfUrl(it&&it.url);
     return id?vObj(id,{t:it.title||'',c:'',ch:'',pub:'',cat:'Result'}):null;
@@ -1090,6 +1101,7 @@ window.onVideosReceived=function(json){
     :'<div class="empty">No videos match that.</div>';
 };
 window.onVideoError=function(message){
+  bridgeAnswered=true;
   $('results').innerHTML='<div class="empty">Search failed. '+esc(String(message||''))+'</div>';
 };
 

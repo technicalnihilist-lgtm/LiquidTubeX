@@ -1,5 +1,6 @@
 package com.liquidtubex.app;
 
+import android.util.Log;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 
@@ -20,6 +21,8 @@ import org.schabi.newpipe.extractor.NewPipe;
  */
 public class ExtractorBridge {
 
+    private static final String TAG = "LiquidTube";
+
     private static boolean initialised;
 
     private final WebView web;
@@ -35,10 +38,12 @@ public class ExtractorBridge {
         }
         NewPipe.init(new MyDownloader());
         initialised = true;
+        Log.i(TAG, "extractor: NewPipe initialised");
     }
 
     @JavascriptInterface
     public void searchVideos(String query) {
+        Log.i(TAG, "extractor: searchVideos called with \"" + query + "\"");
         if (query == null || query.trim().isEmpty()) {
             send("window.onVideoError", "Empty query");
             return;
@@ -57,6 +62,7 @@ public class ExtractorBridge {
                         object.put("thumbnail", video.thumbnail == null ? "" : video.thumbnail);
                         array.put(object);
                     }
+                    Log.i(TAG, "extractor: " + array.length() + " results");
                     send("window.onVideosReceived", array.toString());
                 } catch (Exception e) {
                     send("window.onVideoError", e.toString());
@@ -65,6 +71,7 @@ public class ExtractorBridge {
 
             @Override
             public void onError(String error) {
+                Log.i(TAG, "extractor: search failed - " + error);
                 send("window.onVideoError", error == null ? "Unknown error" : error);
             }
         });
