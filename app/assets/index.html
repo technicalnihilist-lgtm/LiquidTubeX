@@ -1,0 +1,1565 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LiquidTube</title>
+<!-- Warm the two origins the first screen needs, before the 61 KB of markup and
+     style below is parsed: the API host (fetched with CORS, so a CORS socket)
+     and the thumbnail host (plain <img> requests, so a plain socket). On a cold
+     start that is one DNS lookup plus TCP and TLS per origin, and the feed fetch
+     and the first thumbnails would otherwise each pay it on their own critical
+     path. dns-prefetch first for engines that skip preconnect, preconnect for
+     the handshake itself. Neither sends a request, so nothing here can change
+     what the app fetches, and both hosts are already on the WebView allowlist. -->
+<link rel="dns-prefetch" href="https://www.googleapis.com">
+<link rel="dns-prefetch" href="https://i.ytimg.com">
+<link rel="preconnect" href="https://www.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://i.ytimg.com">
+<style>
+:root{--bg:#f3f3f7;--ink:#0b0b0f;--mute:#6c6c78;--g1:rgba(255,255,255,.55);--g2:rgba(255,255,255,.14);--rim:rgba(255,255,255,.95);--shade:rgba(20,20,40,.16);--red:#ff2d3d;box-sizing:border-box}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0b0b10;--ink:#f5f5f8;--mute:#9a9aa8;--g1:rgba(90,90,110,.5);--g2:rgba(40,40,55,.2);--rim:rgba(255,255,255,.4);--shade:rgba(0,0,0,.55)}}
+:root[data-theme=dark]{--bg:#0b0b10;--ink:#f5f5f8;--mute:#9a9aa8;--g1:rgba(90,90,110,.5);--g2:rgba(40,40,55,.2);--rim:rgba(255,255,255,.4);--shade:rgba(0,0,0,.55)}
+*{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,"SF Pro Display","Inter","Segoe UI",Roboto,sans-serif;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.app{position:relative;height:100%;max-width:430px;margin:0 auto;overflow:hidden;background:var(--bg);isolation:isolate}
+@media(min-width:500px){body{background:#cfcfd8}.app{height:min(900px,96%);margin-top:2vh;border-radius:44px;box-shadow:0 30px 80px #0005}}
+
+/* ===== bounce system: real spring curves (linear()) with safe fallbacks ===== */
+:root{--bounce:cubic-bezier(.34,1.56,.64,1);--bounce-soft:cubic-bezier(.25,1.25,.4,1)}
+@supports (transition-timing-function:linear(0,1)){:root{--bounce:linear(0,0.0425,0.1522,0.3038,0.4746,0.6461,0.8042,0.9394,1.0463,1.1231,1.1711,1.1935,1.1946,1.1797,1.1539,1.1219,1.0879,1.0551,1.0259,1.0017,0.9834,0.9709,0.9638,0.9614,0.9628,0.9668,0.9725,0.9791,0.9857,0.9919,0.9972,1.0014,1.0045,1.0065,1.0074,1.0075,1.007,1.006,1.0048,1.0035,1.0022,1.0011,1.0002,0.9994,1);--bounce-soft:linear(0,0.0207,0.0751,0.1527,0.2448,0.3442,0.4451,0.5432,0.6352,0.7191,0.7935,0.8578,0.912,0.9563,0.9915,1.0183,1.0379,1.0511,1.0591,1.0628,1.0631,1.0608,1.0567,1.0513,1.0452,1.0389,1.0325,1.0265,1.0208,1.0158,1.0113,1.0075,1.0043,1.0018,0.9998,0.9983,0.9972,0.9965,0.9961,0.996,0.9961,0.9962,0.9965,0.9969,1)}}
+/* ===== liquid glass ===== */
+.glass{position:relative;background:linear-gradient(135deg,var(--g1),var(--g2));backdrop-filter:blur(var(--glassBlur,16px)) saturate(190%) brightness(1.06);-webkit-backdrop-filter:blur(var(--glassBlur,16px)) saturate(190%) brightness(1.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28),inset 0 1.5px 1px var(--rim),inset 0 -1.5px 1px rgba(255,255,255,.22),0 10px 30px var(--shade)}
+.glass::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(118deg,rgba(255,255,255,.6),rgba(255,255,255,0) 32%,rgba(255,255,255,0) 68%,rgba(255,255,255,.3));opacity:.5}
+/* pages */
+.page{position:absolute;inset:0;z-index:0;overflow-y:auto;overflow-x:hidden;padding-bottom:150px;scrollbar-width:none;background:radial-gradient(70% 22% at 100% 6%,rgba(255,70,110,.22),transparent),radial-gradient(70% 20% at 0% 48%,rgba(70,120,255,.2),transparent),radial-gradient(70% 20% at 100% 85%,rgba(160,80,255,.18),transparent),var(--bg);transition:transform .95s var(--bounce-soft),opacity .45s ease;will-change:transform,opacity}
+.page::-webkit-scrollbar{display:none}.drag .page{transition:none}
+.top{position:sticky;top:0;z-index:5;padding:calc(env(safe-area-inset-top,0px) + 10px) 14px 8px;background:linear-gradient(var(--bg) 84%,color-mix(in srgb,var(--bg) 70%,transparent) 100%);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);transition:transform .18s linear}
+.row{display:flex;align-items:center;justify-content:space-between}
+.logo{display:flex;align-items:center;gap:6px;font-weight:800;font-size:19px;letter-spacing:-.04em}
+.logo i{width:30px;height:21px;border-radius:6px;background:var(--red);position:relative}
+.logo i:after{content:"";position:absolute;left:12px;top:5px;border:5.5px solid transparent;border-left:9px solid #fff;border-right:0}
+.ic{display:flex;gap:8px}.ic button{width:38px;height:38px;border-radius:50%;display:grid;place-items:center}
+svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0 4px;scrollbar-width:none}.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;padding:8px 16px;border-radius:99px;font-size:13.5px;font-weight:600;transition:background .3s,color .3s,scale .6s var(--bounce)}
+.chip.on{background:var(--ink);color:var(--bg);scale:1.06}
+h2{font-size:19px;font-weight:800;letter-spacing:-.03em;padding:14px 14px 8px}
+.page{background-attachment:local}
+/* ===== dock ===== */
+.dock{position:absolute;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);display:flex;gap:10px;z-index:60;transform-style:flat}
+.tabs{flex:1;height:66px;position:relative;touch-action:pan-y;user-select:none;-webkit-user-select:none}
+.tabs .bg{position:absolute;inset:0;border-radius:99px}
+.lens{position:absolute;left:5px;top:5px;bottom:5px;width:calc((100% - 10px)/3);border-radius:99px;transition:transform .9s var(--bounce);--g1:rgba(255,255,255,.7);--g2:rgba(255,255,255,.22);pointer-events:none}
+.drag .lens{transition:transform .09s linear}
+.tabrow{position:absolute;inset:5px;display:flex}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10.5px;font-weight:600;color:var(--mute);transition:color .3s,scale .55s var(--bounce)}
+.tab.on{color:var(--red)}.tab svg{width:22px;height:22px}
+.sbtn{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;flex:none;transition:scale .6s var(--bounce)}.sbtn:active{scale:.86}
+@media(prefers-reduced-motion:reduce){:root{--bounce:cubic-bezier(.25,.9,.3,1);--bounce-soft:cubic-bezier(.25,.9,.3,1)}.skl{animation:none}}
+
+/* ---- overlays: off-screen until the deferred sheet lands ---- */
+/* #search, #pl, #sheet, #scrim and #toast are revealed only by their `.on`
+   class, so keeping them hidden here cannot change the UI. It only stops them
+   painting as bare flow content in the first frames, before the deferred sheet
+   (which carries their positioning) has been applied. */
+#search:not(.on),#pl:not(.on),#sheet:not(.on),#scrim:not(.on),#toast:not(.on){position:absolute;opacity:0;pointer-events:none}
+
+/* ---- layout switch ---- */
+html[data-layout=tablet] .app{max-width:640px}
+html[data-layout=tablet] body{font-size:16.5px}
+html[data-layout=tablet] .card b{font-size:15.5px}
+html[data-layout=tablet] .chips .chip{padding:9px 18px;font-size:15px}
+html[data-layout=full] body{background:var(--bg)}
+html[data-layout=full] .app{max-width:100%;height:100%;margin:0;border-radius:0;box-shadow:none}
+@media(min-width:500px){html[data-layout=full] .app{height:100%;margin:0;border-radius:0;box-shadow:none}}
+.skl{height:150px;border-radius:20px;margin-bottom:12px;background:linear-gradient(100deg,rgba(120,120,140,.12),rgba(120,120,140,.2),rgba(120,120,140,.12));background-size:200% 100%;animation:skl 1.2s infinite}
+@keyframes skl{to{background-position:-200% 0}}
+
+/* ---- bounce everywhere ---- */
+:where(button,.big){transition:scale .6s var(--bounce)}
+button:active,.big:active{scale:.93}
+.lens::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:radial-gradient(120% 90% at 30% 0%,rgba(255,255,255,.75),transparent 55%);opacity:.55}
+.tab:active{scale:.86}
+.tab.on svg{animation:tabpop .75s var(--bounce)}
+@keyframes tabpop{from{transform:scale(.55) translateY(5px)}to{transform:none}}
+.lens.jelly{animation:jelly .75s ease-out}
+@keyframes jelly{0%{scale:1 1}28%{scale:1.16 .88}58%{scale:.96 1.05}100%{scale:1 1}}
+@keyframes rise{from{opacity:0;transform:translateY(46px) scale(.92)}to{opacity:1;transform:none}}
+.dock{opacity:0}.app.ready .dock{animation:dockin 1.1s var(--bounce) .1s both}
+@keyframes dockin{from{opacity:0;transform:translateY(120px) scale(.8)}to{opacity:1;transform:none}}
+.top .logo{animation:rise .9s var(--bounce) backwards}
+.app:not(.ready) .top .logo,.app:not(.ready) .ic button{animation:none;opacity:0}
+.ic button{animation:rise .8s var(--bounce) backwards}.ic button:nth-child(2){animation-delay:.05s}.ic button:nth-child(3){animation-delay:.1s}.ic button:nth-child(4){animation-delay:.15s}
+
+/* ---- bounce loading + bounce content open ---- */
+.ldr{display:flex;gap:9px;justify-content:center;align-items:flex-end;height:36px;padding:8px 0}
+.ldr i{width:11px;height:11px;border-radius:50%;background:linear-gradient(135deg,var(--red),#ff7a5c);animation:hop2 1s infinite}
+.ldr i:nth-child(2){animation-delay:.12s}.ldr i:nth-child(3){animation-delay:.24s}
+.ldr.abs{position:absolute;inset:0;align-items:center;height:auto;padding:0}
+@keyframes hop2{0%,100%{transform:translateY(0) scale(1.2,.8);animation-timing-function:cubic-bezier(.2,.7,.4,1)}45%{transform:translateY(-14px) scale(.92,1.1);animation-timing-function:cubic-bezier(.6,0,.8,.4)}}
+@keyframes hop{0%,100%{transform:translateY(0) scale(1.06,.94);animation-timing-function:cubic-bezier(.2,.7,.4,1)}45%{transform:translateY(-22px) scale(.97,1.05);animation-timing-function:cubic-bezier(.6,0,.8,.4)}}
+#splash{position:absolute;inset:0;z-index:90;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px;background:radial-gradient(70% 22% at 100% 6%,rgba(255,70,110,.22),transparent),radial-gradient(70% 20% at 0% 48%,rgba(70,120,255,.2),transparent),radial-gradient(70% 20% at 100% 85%,rgba(160,80,255,.18),transparent),var(--bg);transition:opacity .45s ease,scale .8s var(--bounce),visibility 0s .8s}
+#splash .logo{font-size:30px;gap:12px;animation:hop 1.1s infinite}
+#splash .logo i{scale:1.5;margin-right:6px}
+#splash.out{opacity:0;scale:1.25;visibility:hidden;pointer-events:none}
+img{opacity:0;scale:1.12;transition:opacity .45s ease,scale .9s var(--bounce)}
+img.ld{opacity:1;scale:1}
+.thumb iframe{position:absolute;inset:0;width:100%;height:100%;border:0;opacity:0;scale:.92;transition:opacity .45s ease,scale .9s var(--bounce)}
+.thumb iframe.ld{opacity:1;scale:1}
+.art{background:rgba(0,0,0,.28)}
+.skl{animation:rise .85s var(--bounce) backwards,skl 1.2s linear infinite}
+.skl:nth-child(2){animation-delay:.08s,0s}.skl:nth-child(3){animation-delay:.16s,0s}
+.car .skl{flex:none;width:86%;height:230px;border-radius:30px;margin-bottom:0}
+#feed .skl{height:230px;margin:6px 14px 18px;border-radius:24px}
+.vh,.desc,.chips>.chip,#sg>button,.sug>button{animation:rise .85s var(--bounce) backwards}
+.chips>:nth-child(2),#sg>:nth-child(2),.sug>:nth-child(2){animation-delay:.05s}
+.chips>:nth-child(3),#sg>:nth-child(3),.sug>:nth-child(3){animation-delay:.1s}
+.chips>:nth-child(4),#sg>:nth-child(4),.sug>:nth-child(4){animation-delay:.15s}
+.chips>:nth-child(5),#sg>:nth-child(5),.sug>:nth-child(5){animation-delay:.2s}
+.chips>:nth-child(6),#sg>:nth-child(6),.sug>:nth-child(6){animation-delay:.25s}
+.chips>:nth-child(n+7),#sg>:nth-child(n+7),.sug>:nth-child(n+7){animation-delay:.3s}
+</style></head><body>
+<div class="app" id="app">
+<section class="page" id="p-home">
+ <div class="top"><div class="row"><div class="logo"><i></i>LiquidTube</div>
+  <div class="ic"><button class="glass" data-ic="plus" data-do="plus" aria-label="Create"></button><button class="glass" data-ic="cast" data-do="cast" aria-label="Cast"></button><button class="glass" data-ic="bell" data-do="bell" aria-label="Notifications"></button><button class="glass" id="you" data-ic="user" data-do="you" aria-label="You"></button></div></div>
+  <div class="chips" id="chips"></div></div>
+ <div id="feed" style="padding-top:12px;transition:opacity .2s"><div class="ldr"><i></i><i></i><i></i></div><div class="skl"></div><div class="skl"></div><div class="skl"></div></div>
+</section>
+<section class="page" id="p-explore"><div class="top"><div class="row"><div class="logo">Explore</div><div class="ic"><button class="glass" data-ic="cast" data-do="cast" aria-label="Cast"></button><button class="glass" data-ic="more" data-do="more" aria-label="More"></button></div></div></div><div id="ex"></div></section>
+<section class="page" id="p-subs"><div class="top"><div class="logo">Subscriptions</div></div><div class="sg" id="sg"></div><h2 id="subh">Latest</h2><div id="subfeed"></div></section>
+<div id="search"><div class="sbar"><label class="glass"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" placeholder="Search videos" autocomplete="off"></label><button id="cancel">Cancel</button></div><div class="sug" id="sug"></div><div id="results"></div></div>
+<div id="scrim"></div>
+<div id="pl" class="glass"><div class="art thumb"></div><b id="ptitle"></b><span id="pmeta"></span><div class="prow"><button class="glass" id="ppp">Like</button><button class="glass" id="plk">Channel</button><button class="glass" id="psave">Save</button><button class="glass" id="pcm">Comments</button><button class="glass" id="pclose">Close</button></div></div>
+<div id="sheet" class="glass"><h3 id="sht"></h3><div id="shb"></div><div id="shi"><input id="shin" placeholder="Add a comment" class="glass"><button id="shpost">Post</button></div></div>
+<div id="toast" class="glass"></div>
+<div id="splash"><div class="logo"><i></i>LiquidTube</div><div class="ldr"><i></i><i></i><i></i></div></div>
+<nav class="dock"><div class="tabs" id="tabs"><div class="bg glass"></div><div class="lens glass" id="lens"></div><div class="tabrow" id="tabrow"></div></div><button class="sbtn glass" id="sopen" aria-label="Search" data-ic="search"></button></nav>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const I={anime:'<rect x="3.5" y="4" width="17" height="16" rx="4"/><path d="M9 9.5v5l5-2.5z"/><path d="M7 4v16M17 4v16"/>',movies:'<rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 6v12M17 6v12M3 12h18"/>',cartoon:'<circle cx="12" cy="12" r="8.5"/><circle cx="9" cy="10" r="1.3"/><circle cx="15" cy="10" r="1.3"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/>',plus:'<path d="M12 5v14M5 12h14"/>',cast:'<path d="M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/><path d="M3 12a8 8 0 0 1 8 8M3 16a4 4 0 0 1 4 4M3 20h.01"/>',bell:'<path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0"/>',user:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.2 18.5a7 7 0 0 1 11.6 0"/>',more:'<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',home:'<path d="M3 11 12 3l9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',explore:'<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',subs:'<rect x="3" y="7" width="18" height="13" rx="3"/><path d="M7 3h10M10 11l4 2.5-4 2.5z"/>',like:'<path d="M7 11v9H4v-9zM7 11l4-8c2 0 3 1.5 2.5 3.5L13 9h5.5a2 2 0 0 1 2 2.4l-1.3 6.5a2 2 0 0 1-2 1.6H7"/>',cmt:'<path d="M4 5h16v11H9l-5 4z"/>',share:'<path d="M4 12v7h16v-7M12 3v12M7.5 7.5 12 3l4.5 4.5"/>',remix:'<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>',audio:'<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'};
+const ic=n=>`<svg viewBox="0 0 24 24">${I[n]}</svg>`;
+document.querySelectorAll('[data-ic]').forEach(b=>b.innerHTML=ic(b.dataset.ic));
+/* ================= LiquidTube — live data on the liquid-glass shell ================= */
+const G=[['#ff5f6d','#ffc371'],['#7f00ff','#e100ff'],['#00c6ff','#0072ff'],['#f7971e','#ffd200'],['#11998e','#38ef7d'],['#fc466b','#3f5efb'],['#232526','#6a6a8a'],['#ff9a9e','#a18cd1']];
+const g=i=>`linear-gradient(135deg,${G[i%8][0]},${G[i%8][1]})`;
+const APIKEY='AIzaSyBF449ShoVt-1qsWhO8VUdHU7v_2E72lNA';
+/* ---------- constants: resolved once at boot, never per call ----------
+   Everything here used to be rebuilt on every call: the escape table and its
+   regex, the entity decoder's five patterns, the duration / shorts / quota
+   patterns, the API, thumbnail and embed URL prefixes, the region and date
+   formatters and the colour-scheme query. A render pass or an API call now pays
+   only for its own work, and each literal has one definition to keep in step.
+   The two Intl formatters are built on first use, so boot pays nothing for them. */
+const API_BASE='https://www.googleapis.com/youtube/v3/';
+const THUMB_BASE='https://i.ytimg.com/vi/';
+const EMBED_BASE='https://www.youtube-nocookie.com/embed/';
+const DEC_RE=[/&amp;/g,/&quot;/g,/&#39;/g,/&lt;/g,/&gt;/g];
+const DEC_TO=['&','"',"'",'<','>'];
+const DUR_RE=/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/;
+const PRIVATE_RE=/^(Private|Deleted) video$/i;
+const SHORTS_TAG_RE=/\bshorts?\b|#shorts/i;
+const HINDI_RE=/[\u0900-\u097F]|\bhindi\b/i;
+const QUOTA_RE=/quota/i;
+const YT_ORIGIN_RE=/^https:\/\/(www\.)?youtube(-nocookie)?\.com$/;
+const SVG_TAG_RE=/<svg[\s\S]*<\/svg>/;
+const V={},CH={},FEED={trending:null,error:'',cached:null,at:0};
+/* Last feed, kept so a reopen paints real cards before any request is made.
+   FEED.cached is only ever a paint source: FEED.trending stays null until the
+   network answers, so loadTrending() still refreshes on every launch. CAV holds
+   just the channel avatars the cached cards need, so the partial cache never
+   stands in for a full CH entry (loadChannels/ensureChannel keep fetching). */
+const FKEY='lt_feed',FVER=1,CAV={};
+const ESCMAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'};
+const ESC_RE=/[&<>"]/g;
+const escMap=c=>ESCMAP[c];
+const esc=t=>String(t==null?'':t).replace(ESC_RE,escMap);
+const dec=t=>{let s=String(t==null?'':t);for(let i=0;i<DEC_RE.length;i++)s=s.replace(DEC_RE[i],DEC_TO[i]);return s};
+const hash=s=>{s=String(s==null?'':s);let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h};
+const num=n=>{n=+n||0;if(n>=1e9)return (n/1e9).toFixed(1).replace('.0','')+'B';if(n>=1e6)return (n/1e6).toFixed(1).replace('.0','')+'M';if(n>=1e3)return (n/1e3).toFixed(1).replace('.0','')+'K';return n?String(n):''};
+const ago=iso=>{if(!iso)return '';const d=(Date.now()-new Date(iso).getTime())/864e5;if(d<1)return 'today';if(d<30)return Math.floor(d)+'d ago';if(d<365)return Math.floor(d/30)+'mo ago';return Math.floor(d/365)+'y ago'};
+const bestTh=t=>{if(!t)return '';return (t.maxres||t.standard||t.high||t.medium||t.default||{}).url||''};
+let REGION_FMT=null,REGION_TRIED=false;const REGION_MEMO=new Map();
+const cname=cc=>{cc=String(cc==null?'':cc);
+  if(!REGION_TRIED){REGION_TRIED=true;try{REGION_FMT=new Intl.DisplayNames(['en'],{type:'region'})}catch(e){REGION_FMT=null}}
+  if(!REGION_FMT)return cc;
+  const m=REGION_MEMO.get(cc);if(m!==undefined)return m;
+  let v;try{v=REGION_FMT.of(cc)||cc}catch(e){v=cc}
+  REGION_MEMO.set(cc,v);return v};
+const DATE_OPTS={day:'numeric',month:'short',year:'numeric'};
+let DATE_FMT=null,DATE_TRIED=false;
+const dfmt=d=>{if(!DATE_TRIED){DATE_TRIED=true;try{DATE_FMT=new Intl.DateTimeFormat('en-IN',DATE_OPTS)}catch(e){DATE_FMT=null}}
+  return DATE_FMT?DATE_FMT.format(d):d.toLocaleDateString('en-IN',DATE_OPTS)};
+const DARK_MQ=(()=>{try{return matchMedia('(prefers-color-scheme:dark)')}catch(e){return null}})();
+const isDark=()=>{const t=document.documentElement.dataset.theme;if(t)return t==='dark';return !!(DARK_MQ&&DARK_MQ.matches)};
+const pic=id=>THUMB_BASE+id+'/maxresdefault.jpg';
+const QUAL=['maxresdefault','sddefault','hqdefault','mqdefault','default'];
+window.THOK=function(img){
+  if(img.dataset.f)return;
+  if(img.naturalWidth<=121){
+    img.dataset.f='1';
+    img.src='https://i.ytimg.com/vi/'+img.dataset.id+'/hqdefault.jpg';
+  }
+};
+window.TH=function(img){
+  if(img.dataset.f){                       // second failure: keep a tidy card, never a broken icon
+    img.style.display='none';
+    const p=img.parentElement;
+    if(p)p.style.background='linear-gradient(135deg,#23262f,#3d4256)';
+    return;
+  }img.dataset.f='1';img.src='https://i.ytimg.com/vi/'+img.dataset.id+'/hqdefault.jpg';};
+const thumbImg=id=>'<img src="'+THUMB_BASE+esc(id)+'/maxresdefault.jpg" alt="" loading="lazy" data-id="'+esc(id)+'" data-q="0" onload="THOK(this)" onerror="TH(this)">';
+
+/* ---------- persisted state ---------- */
+const SKEY='lt';
+let S={liked:[],subs:[],later:[],hist:[],vd:{},pl:{},cats:{},opt:{cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'}};
+try{const p=JSON.parse(localStorage.getItem(SKEY)||'{}');Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'},p.opt||{})}catch(e){}
+const save=()=>{try{localStorage.setItem(SKEY,JSON.stringify(S))}catch(e){}};
+S.vd=S.vd||{};try{localStorage.removeItem('lt_shorts')}catch(e){}
+document.addEventListener('touchstart',()=>{},{passive:true});
+document.addEventListener('load',e=>{const t=e.target;if(t&&(t.tagName==='IMG'||t.tagName==='IFRAME'))t.classList.add('ld')},true);
+document.addEventListener('error',e=>{const t=e.target;if(t&&t.tagName==='IMG'&&!t.hasAttribute('onerror'))t.classList.add('ld')},true);
+const LDR='<div class="ldr"><i></i><i></i><i></i></div>';
+const LDRABS=LDR.replace('class="ldr"','class="ldr abs"');
+const on=(a,x)=>a.includes(x);
+const toggle=(a,x)=>{const i=a.indexOf(x);if(i<0)a.push(x);else a.splice(i,1);save();return i<0};
+
+/* ---------- glass transparency + layout ---------- */
+function applyGlass(){
+  const t=Math.max(0,Math.min(100,+S.opt.glass||0))/100;          // 0 = solid, 1 = very see-through
+  const root=document.documentElement;
+  const dark=isDark();
+  const base=dark?[96,96,116]:[255,255,255];
+  const a1=dark?(0.74-0.46*t):(0.93-0.71*t);
+  const a2=Math.max(.05,a1*0.45);
+  root.style.setProperty('--g1','rgba('+base[0]+','+base[1]+','+base[2]+','+a1.toFixed(3)+')');
+  root.style.setProperty('--g2','rgba('+base[0]+','+base[1]+','+base[2]+','+a2.toFixed(3)+')');
+  root.style.setProperty('--glassBlur',(10+16*t).toFixed(0)+'px');
+}
+function applyLayout(){
+  document.documentElement.dataset.layout=S.opt.layout||'phone';
+}
+applyLayout();applyGlass();
+
+/* ---------- YouTube API ---------- */
+/* Every API call goes through one request cache. The key is the path plus the
+   sorted parameters with `key` left out, so two calls that would send the same
+   query share one entry, and each entry carries a TTL chosen per endpoint: a
+   channel's metadata and a video's duration are good for hours, an upload list
+   for half an hour, the trending chart and a search for ten minutes. A repeat
+   inside that window is answered from memory — no round trip, no quota unit —
+   which is what the search box (a call per keystroke), a shelf's "View All"
+   (the same search again), a reopened channel sheet and a chip tapped twice
+   all hit. Only a successful response is stored: a throw, a 500 or a quota
+   refusal leaves no entry, so the next call retries instead of serving the
+   failure. The map is capped at RQ_MAX entries and evicts the oldest first, so
+   it cannot grow with the number of distinct queries typed in a session. The
+   stored object is handed straight to the caller, which only reads it: every
+   call site maps or filters `items` into objects of its own.
+
+   A call that is still on the wire is shared, not repeated. `RQI` holds the
+   promise of every request that has been sent but has not answered yet, under
+   the same key, so a second call for the same query before the first returns
+   joins it instead of spending another round trip and another quota unit. The
+   slot is cleared the moment the response lands (or the request fails), and a
+   success has already been put in `RQ` by then, so the next call is an ordinary
+   cache hit and a failure leaves nothing behind to block a retry. Two callers
+   share one parsed response object, which is exactly what a cache hit already
+   hands out — every call site only reads it. This is what makes a double tap
+   free: a chip tapped twice while its section is loading, "View All" pressed
+   again before the shelf's search comes back, the same query retyped inside one
+   round trip, a channel sheet reopened while the first is still fetching.
+
+   A request that fails for a transient reason is tried once more, after an
+   exponential backoff, before the failure is handed to the caller. Transient
+   means a 5xx, a 429, or a fetch that never got a response at all (offline, DNS,
+   a reset connection, TLS). A 4xx is an answer, not a glitch — a revoked key, a
+   quota refusal, a not-found — so it is never repeated. The retry lives inside
+   the in-flight promise, so callers that joined a request also wait for its
+   retry and still share one result, and only a success is written to the cache.
+
+   How long an entry stays good is the endpoint table below (rqTtl) unless the
+   response itself says otherwise. A caching header on the response —
+   Cache-Control, Pragma, or the older Expires/Date pair — is honoured instead,
+   and can only ever shorten that window, never lengthen it (rqHdrFresh).
+
+   A request can also belong to a page. `yt(path, params, 'explore')` tags it
+   with the tab whose DOM its answer is rendered into, and every tab change
+   (pageSwitch, called from render) narrows the set of pages the app is filling
+   to the tab the user is on: a request whose owning page is not in that set, and
+   that no page in it is waiting for either, is aborted through an AbortController
+   — the connection closes, the body is never parsed, nothing is cached, and no
+   quota is spent on a list nobody is looking at any more. A tagged call for a
+   page outside the set is not even sent, so a half-finished chain (a shelf that
+   was waiting on a shared channel lookup) stops at its next step instead of
+   firing one more request for a tab nobody is on. Every owner of such a request
+   already tolerates a failure (a shelf's promise is caught in paintShelf, a
+   section's in chip) and every page re-drives whatever it never got when it is
+   entered again (exploreResume, homeResume), so what the user finally sees is
+   unchanged. Never abandoned: a request nobody tagged (the feed, the channel
+   queue, durations, the search box, the player — shared or needed everywhere), a
+   request an untagged caller has joined (it is no longer one page's private
+   work), and a request the page now on screen is waiting for. Without
+   AbortController the tagging is inert and every request runs to completion
+   exactly as before. */
+const RQ=new Map(),RQ_MAX=48,RQ_ST={hit:0,miss:0,evict:0,join:0,retry:0,retryOk:0,retryFail:0,hdr:0,keep:0,abort:0};
+const RQI=new Map();                                               /* key -> {p, ac, own} on the wire */
+const RQ_TTL_SEARCH=6e5,RQ_TTL_CHART=6e5,RQ_TTL_UPLOADS=18e5,RQ_TTL_CHANNEL=6*36e5,RQ_TTL_DUR=12*36e5;
+function rqTtl(path,params){
+  if(path==='channels')return RQ_TTL_CHANNEL;                       /* title, avatar, subs */
+  if(path==='videos')return (params&&params.chart)?RQ_TTL_CHART:RQ_TTL_DUR;  /* chart vs durations */
+  if(path==='playlistItems')return RQ_TTL_UPLOADS;
+  if(path==='search')return RQ_TTL_SEARCH;
+  return RQ_TTL_CHART;
+}
+function rqKey(path,params){
+  const q=new URLSearchParams(params||{}),parts=[];
+  q.forEach((v,k)=>{if(k!=='key')parts.push(k+'='+v)});
+  parts.sort();                                                    /* order of the call does not matter */
+  return path+'?'+parts.join('&');
+}
+function rqGet(k,now){
+  const e=RQ.get(k);
+  if(!e)return null;
+  if(now-e.at>=e.ttl){RQ.delete(k);return null}                    /* stale: dropped on read, no timer */
+  return e.j;
+}
+function rqPut(k,j,ttl,now){
+  if(RQ.size>=RQ_MAX){                                             /* bound: oldest insertion goes first */
+    const o=RQ.keys().next();
+    if(!o.done){RQ.delete(o.value);RQ_ST.evict++}
+  }
+  RQ.set(k,{at:now,ttl,j});
+}
+window.__ltReqCache=()=>({size:RQ.size,max:RQ_MAX,hit:RQ_ST.hit,miss:RQ_ST.miss,evict:RQ_ST.evict,join:RQ_ST.join,retry:RQ_ST.retry,retryOk:RQ_ST.retryOk,retryFail:RQ_ST.retryFail,hdr:RQ_ST.hdr,keep:RQ_ST.keep,abort:RQ_ST.abort,fly:RQI.size});
+/* ---------- abandoning the work of a page the user has left ---------- */
+const RQ_ABORT=typeof AbortController==='function';
+/* The pages whose content the app is filling right now. At boot that is Home and
+   Explore, because the shell paints the feed and starts the shelves together; a
+   tab change narrows it to the tab the user is actually on. */
+let want=new Set(['home','explore']);
+const pageWanted=p=>want.has(p);
+function rqAbort(){                        /* the same shape fetch rejects with, so callers can tell it apart */
+  const e=new Error('Request abandoned');e.name='AbortError';return e;
+}
+function rqAbandon(page){                  /* `page` is the tab the user is on now */
+  if(!RQ_ABORT||!page)return;
+  want=new Set([page]);
+  [...RQI.values()].forEach(en=>{
+    if(!en.own||en.own.has(page))return;   /* untagged, or the page now on screen wants it */
+    if(en.ac)en.ac.abort();                /* nobody on screen is waiting for this any more */
+    RQ_ST.abort++;
+  });
+}
+/* One retry, with exponential backoff, for the failures worth retrying. The wait
+   doubles per attempt (RQ_RETRY_BASE, capped at RQ_RETRY_CAP) plus up to 50 %
+   jitter, so several calls that failed together do not come back in lockstep.
+   RQ_RETRY_MAX=1 means two attempts in total: a boot can pay at most ~0.75 s of
+   extra waiting, not a retry storm. */
+const RQ_RETRY_MAX=1,RQ_RETRY_BASE=500,RQ_RETRY_CAP=4000;
+const rqSleep=ms=>new Promise(r=>setTimeout(r,ms));
+function rqBackoff(attempt){
+  const base=Math.min(RQ_RETRY_CAP,RQ_RETRY_BASE*Math.pow(2,attempt));
+  return base+Math.floor(Math.random()*base*0.5);
+}
+function rqErr(msg,status){const e=new Error(msg);e.status=status|0;return e}
+function rqWorthRetry(e){
+  if(!e||e.name==='AbortError')return false;  /* cancelled on purpose: never repeated */
+  const s=e.status|0;
+  if(!s)return true;                          /* no response at all: the network failed */
+  return s===429||(s>=500&&s<=599);
+}
+/* ---------- what the response says about its own freshness ---------- */
+/* The server is the authority on how long its answer stays good, so a caching
+   header on a response is honoured ahead of the endpoint table in rqTtl().
+   Read: Cache-Control (max-age, s-maxage, no-cache, no-store), Pragma: no-cache
+   when there is no Cache-Control, and Expires with Date for servers that only
+   send the old pair; Age is subtracted because it is time the response already
+   spent in a cache, and Date is subtracted too when it is older than the
+   request, because that is time it already spent on the wire. Two limits keep
+   this from doing damage. A header may only SHORTEN the endpoint's window,
+   never extend it, so a server (or a CDN in front of it) that says
+   max-age=86400 cannot make a search result or the trending chart a day stale.
+   And a header that says do not keep it — no-store, no-cache, max-age=0, an
+   Expires in the past — is taken at its word and nothing is stored, so the next
+   call goes out; the callers that joined the request still get the response.
+   Nothing said means rqTtl() decides, which is what happens today: the live
+   endpoint sends no Cache-Control, no Expires, no Age and no ETag at all, and
+   its CORS response exposes only vary, content-encoding, date, server and
+   content-length, so this reader finds nothing and every call keeps exactly the
+   window item 2.1 gave it. It is a fallback for the day the server, a proxy or
+   a CDN starts saying something. `h` is the response's Headers, or undefined in
+   a harness that does not provide one. */
+function rqHdr(h,k){try{return h?String(h.get(k)||''):''}catch(e){return ''}}
+function rqSecs(v){                                               /* a header's delta-seconds, or -1 */
+  if(v===undefined||v===null||v==='')return -1;
+  const n=parseInt(v,10);
+  return isFinite(n)&&n>=0?n:-1;
+}
+function rqStamp(h,k){                                            /* a header's HTTP date, or -1 */
+  const t=Date.parse(rqHdr(h,k));
+  return isFinite(t)?t:-1;
+}
+function rqHdrFresh(h,now){
+  if(!h)return null;                                              /* no headers at all: the table decides */
+  const cc=rqHdr(h,'cache-control').toLowerCase(),d={};
+  if(cc)cc.split(',').forEach(p=>{                                /* `k=v`, `k`; quoted values unquoted */
+    const i=p.indexOf('='),k=(i<0?p:p.slice(0,i)).trim();
+    if(k)d[k]=i<0?'':p.slice(i+1).trim().replace(/^"(.*)"$/,'$1');
+  });
+  let max=-1,store=true,src='';
+  const m=rqSecs(d['max-age']);
+  if(m>=0){max=m;src='max-age'}
+  else{const sm=rqSecs(d['s-maxage']);if(sm>=0){max=sm;src='s-maxage'}}
+  if(!cc&&rqHdr(h,'pragma').toLowerCase()==='no-cache'){max=0;src='pragma'}
+  if('no-cache' in d){max=0;src='no-cache'}                        /* wins over any max-age beside it */
+  if('no-store' in d){store=false;src='no-store'}
+  if(!store)return {ttl:0,store:false,src:src};
+  let ttl=-1;
+  if(max>=0)ttl=max*1000;
+  else{
+    const exp=rqStamp(h,'expires');
+    if(exp>=0){const dt=rqStamp(h,'date');ttl=Math.max(0,exp-(dt>=0?dt:now));src='expires'}
+  }
+  if(ttl<0)return null;                                           /* nothing usable said */
+  const age=rqSecs(rqHdr(h,'age'));
+  if(age>0)ttl-=age*1000;
+  const dt=rqStamp(h,'date');
+  if(dt>=0&&now>dt)ttl-=now-dt;
+  return {ttl:ttl>0?ttl:0,store:true,src:src};
+}
+/* one attempt: the status, the body and the API's own error message all become
+   an Error carrying `status`, which is what the retry decision above reads. A
+   success hands back the parsed body and the response's Headers, which the
+   caller reads for freshness. */
+async function rqOnce(path,q,sig){
+  const r=await fetch(API_BASE+path+'?'+q,sig?{signal:sig}:undefined);   /* aborted here if the page was left */
+  let j=null,parsed=true;
+  try{j=await r.json()}catch(e){parsed=false}
+  if(j&&j.error)throw rqErr(j.error.message||'YouTube API error',r.status);
+  if(!r.ok)throw rqErr('HTTP '+r.status,r.status);
+  if(!parsed||!j)throw rqErr('Malformed response',r.status);
+  return {j:j,h:r.headers};
+}
+/* the round trip, with its retry; kept separate so the in-flight slot can be
+   registered before the first await — an async function never throws
+   synchronously, so the slot is always set before anything can clear it */
+async function rqFetch(ck,path,params,q,now,sig){
+  for(let attempt=0;;attempt++){
+    try{
+      const r=await rqOnce(path,q,sig);
+      const base=rqTtl(path,params),hd=rqHdrFresh(r.h,now);
+      const ttl=hd&&hd.ttl<base?hd.ttl:base; /* the table is the ceiling: a header only shortens */
+      if(ttl>0){
+        rqPut(ck,r.j,ttl,now);               /* `now` is pre-fetch: the TTL never runs long */
+        if(ttl<base)RQ_ST.hdr++;             /* this window came from the response */
+      }else RQ_ST.keep++;                    /* the response said not to keep it */
+      if(attempt)RQ_ST.retryOk++;
+      return r.j;
+    }catch(e){
+      if(attempt>=RQ_RETRY_MAX||!rqWorthRetry(e)){if(attempt)RQ_ST.retryFail++;throw e}
+      RQ_ST.retry++;
+      await rqSleep(rqBackoff(attempt));
+    }
+  }
+}
+let tlReq=0;                                /* first request of the boot, marked once */
+async function yt(path,params,own){
+  if(!tlReq){tlReq=1;mark('req')}            /* separates JS work from network in the timeline */
+  const ck=rqKey(path,params),now=Date.now();
+  const hit=rqGet(ck,now);
+  if(hit){RQ_ST.hit++;return hit}
+  if(RQ_ABORT&&own&&!want.has(own))throw rqAbort();   /* that page is not on screen: do not even ask */
+  const flying=RQI.get(ck);
+  if(flying){                                /* already on the wire: share it, send nothing */
+    RQ_ST.join++;
+    if(flying.own){                          /* who else is waiting decides whether it can be abandoned */
+      if(own)flying.own.add(own);            /* a second page now needs it too */
+      else flying.own=null;                  /* an untagged waiter needs it everywhere: keep it */
+    }
+    return flying.p;
+  }
+  RQ_ST.miss++;
+  const q=new URLSearchParams(params||{});
+  q.set('key',APIKEY);                      // the key is one constant, appended here only
+  const ac=own&&RQ_ABORT?new AbortController():null;
+  const p=rqFetch(ck,path,params,q,now,ac?ac.signal:null);
+  RQI.set(ck,{p,ac,own:own?new Set([own]):null});
+  const clear=()=>{RQI.delete(ck)};          /* settled, either way: no stale slot, no retry blocked */
+  p.then(clear,clear);
+  return p;
+}
+const cdn=u=>String(u||'').replace('//yt3.ggpht.com/','//yt3.googleusercontent.com/');
+function cObj(c){
+  const sn=c.snippet||{},st=c.statistics||{},cd=c.contentDetails||{},br=c.brandingSettings||{};
+  return {id:c.id,title:dec(sn.title),av:cdn((sn.thumbnails&&(sn.thumbnails.medium||sn.thumbnails.default)||{}).url),
+    handle:sn.customUrl?('@'+String(sn.customUrl).replace(/^@/,'')):'@'+String(sn.title||'').toLowerCase().replace(/[^a-z0-9]+/g,'').slice(0,20),
+    subs:st.subscriberCount||'',vids:st.videoCount||'',views:st.viewCount||'',joined:sn.publishedAt||'',country:sn.country||'',
+    desc:dec(sn.description||''),up:(cd.relatedPlaylists&&cd.relatedPlaylists.uploads)||'',
+    banner:cdn((br.image&&br.image.bannerExternalUrl)||''),trailer:(br.channel&&br.channel.unsubscribedTrailer)||''};
+}
+/* ---------- channel lookups: one queue, groups of 50 ----------
+   Every `channels` lookup goes through this queue, whatever asked for it: the
+   feed, a section, a shelf, the player, the channel sheet. Ids are collected
+   first and the groups are cut on the next microtask, so every caller in the
+   same task contributes to the same set; the set is cut into groups of CH_BATCH
+   (the API's ceiling for one call) and each group is sent exactly once — an id
+   already queued, already on the wire or already in CH is never asked for
+   again. A group is released the moment its own response lands, so a waiter
+   never waits for the groups behind it. Errors reach the waiters of that group
+   and nobody else, which is what keeps ensureChannel's message intact. */
+const CH_BATCH=50;                 /* ids per `channels` call, the API's limit */
+const CH_PAR=4;                    /* groups on the wire at once */
+const CH_PART='snippet,statistics,contentDetails,brandingSettings';
+const CH_Q=new Map();              /* id -> the waiters still owed that channel */
+const CH_SENT=new Set();           /* ids a group already carries: never sent twice */
+const CH_ST={batch:0,ids:0,join:0,err:0};
+let chTick=0;                      /* 1 while a flush is queued */
+function chRelease(id,err){
+  const w=CH_Q.get(id);if(!w)return;
+  CH_Q.delete(id);CH_SENT.delete(id);
+  for(let i=0;i<w.length;i++){try{w[i](err||null)}catch(e){}}
+}
+async function chGroup(ids){
+  let err=null;
+  CH_ST.batch++;CH_ST.ids+=ids.length;
+  try{
+    const j=await yt('channels',{part:CH_PART,id:ids.join(',')});
+    (j.items||[]).forEach(c=>{CH[c.id]=cObj(c)});
+  }catch(e){err=e||new Error('Could not load');CH_ST.err++}
+  for(let i=0;i<ids.length;i++)chRelease(ids[i],err);
+}
+function chFlush(){
+  chTick=0;
+  const ids=[];
+  CH_Q.forEach((w,id)=>{if(!CH_SENT.has(id)){CH_SENT.add(id);ids.push(id)}});
+  if(!ids.length)return;
+  let next=0;
+  const step=()=>{                                  /* a runner takes the next free group */
+    const at=next*CH_BATCH;next++;
+    if(at>=ids.length)return Promise.resolve();
+    return chGroup(ids.slice(at,at+CH_BATCH)).then(step);
+  };
+  const run=[];
+  for(let k=0;k<CH_PAR&&k*CH_BATCH<ids.length;k++)run.push(step());
+  Promise.all(run).then(()=>{},()=>{});
+}
+/* queue these ids and resolve once each of them is settled (loaded or failed).
+   Resolves with the errors, in no particular order; never rejects. */
+function chWant(ids){
+  const wait=[];
+  (ids||[]).forEach(id=>{
+    if(!id||CH[id])return;
+    let w=CH_Q.get(id);
+    if(w)CH_ST.join++;              /* already owed: one id, one group, many waiters */
+    else{w=[];CH_Q.set(id,w)}
+    wait.push(new Promise(res=>w.push(res)));
+  });
+  if(!wait.length)return Promise.resolve([]);
+  if(!chTick){chTick=1;Promise.resolve().then(chFlush)}   /* the merge window: this task */
+  return Promise.all(wait);
+}
+async function loadChannels(ids){
+  await chWant(ids);          /* a failed group's error is dropped here, as before */
+}
+async function ensureChannel(id){
+  if(CH[id]&&CH[id].up!==undefined)return CH[id];
+  const r=await chWant([id]);
+  if(CH[id])return CH[id];
+  for(let i=0;i<r.length;i++)if(r[i])throw r[i];
+  throw new Error('Channel not found');
+}
+window.__ltChanQueue=()=>({batch:CH_ST.batch,ids:CH_ST.ids,join:CH_ST.join,err:CH_ST.err,queued:CH_Q.size,sent:CH_SENT.size});
+function vObj(id,d){
+  d=d||{};id=id||'';
+  const v=Object.assign({id,t:'',c:'',ch:'',views:'',pub:'',cat:'All',g:G[hash(id)%8]},V[id]||{});
+  if(d.t)v.t=d.t;if(d.c)v.c=d.c;if(d.ch)v.ch=d.ch;
+  if(d.views!=null)v.views=d.views;if(d.pub)v.pub=d.pub;if(d.cat)v.cat=d.cat;
+  if(d.dur!=null)v.dur=d.dur;                  // kept by the feed cache, so a cached card is complete
+  V[id]=v;return v;
+}
+async function loadTrending(){
+  if(FEED.trending)return FEED.trending;
+  try{
+    const j=await yt('videos',{part:'snippet,statistics',chart:'mostPopular',regionCode:'IN',maxResults:24});
+    const list=(j.items||[]).map(it=>vObj(it.id,{t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,
+      views:it.statistics&&it.statistics.viewCount,pub:it.snippet.publishedAt,
+      cat:CATMAP[+it.snippet.categoryId]||'All'}));
+    const clean=await dropShorts(list);
+    await loadChannels(clean.map(v=>v.ch));
+    FEED.trending=clean;FEED.cached=null;saveFeedCache(clean);return clean;
+  }catch(e){FEED.error=e.message||'offline';FEED.trending=[];return []}
+}
+const feed=()=>FEED.trending||FEED.cached||[];
+/* ---------- last-feed cache (localStorage) ---------- */
+function readFeedCache(){
+  try{
+    const raw=localStorage.getItem(FKEY);if(!raw)return null;
+    const c=JSON.parse(raw);
+    if(!c||c.v!==FVER||!Array.isArray(c.items))return null;
+    const items=c.items.filter(o=>o&&typeof o.id==='string'&&o.id);   // shape check
+    return items.length?{at:+c.at||0,items,chav:c.chav||{}}:null;
+  }catch(e){return null}
+}
+function saveFeedCache(items){
+  try{
+    const chav={};
+    (items||[]).forEach(v=>{const av=v&&v.ch&&CH[v.ch]&&CH[v.ch].av;if(av)chav[v.ch]=av});
+    const at=Date.now();
+    localStorage.setItem(FKEY,JSON.stringify({v:FVER,at,chav,items:(items||[]).map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,views:v.views,pub:v.pub,cat:v.cat,dur:v.dur}))}));
+    FEED.at=at;
+  }catch(e){}                                   // quota or private mode: no cache, no failure
+}
+const iso2sec=d=>{const m=DUR_RE.exec(d||'');return m?(+m[1]||0)*3600+(+m[2]||0)*60+(+m[3]||0):0};
+/* Durations are asked for only when a list really needs them.
+   Two ways an item stops counting as unknown: it already has a duration (from
+   the feed cache, an earlier list or this session), or the API has already
+   answered about it without one — a deleted or private video in a playlist, a
+   video with no contentDetails. Those ids are remembered for the session, so
+   reopening the same list (the channel sheet, a section re-render) sends
+   nothing instead of asking about the same dead ids again. Only an answer
+   teaches us that: a failed request marks nothing, so the next list retries. */
+const DUR_NONE=new Set(),DUR_NONE_MAX=200,DUR_ST={calls:0,skipped:0,none:0};
+const durUnknown=v=>!!v&&!!v.id&&v.dur==null&&!DUR_NONE.has(v.id);
+function durNone(id){
+  if(!id||DUR_NONE.has(id))return;
+  DUR_NONE.add(id);DUR_ST.none++;
+  if(DUR_NONE.size>DUR_NONE_MAX)DUR_NONE.delete(DUR_NONE.values().next().value);
+}
+async function loadDurations(list){
+  const ids=[...new Set((list||[]).filter(durUnknown).map(v=>v.id))].slice(0,50);
+  if(!ids.length)return;                        // every item is already measured
+  DUR_ST.calls++;
+  try{
+    const j=await yt('videos',{part:'contentDetails',id:ids.join(',')});
+    const got=new Set();
+    (j.items||[]).forEach(it=>{
+      const d=it.contentDetails&&it.contentDetails.duration;
+      if(d==null)return;                        // answered, but no duration to read
+      got.add(it.id);
+      if(V[it.id])V[it.id].dur=iso2sec(d);
+    });
+    ids.forEach(id=>{if(!got.has(id))durNone(id)});   // never ask about these again
+  }catch(e){}                                  // a failure teaches us nothing: keep them unknown
+}
+window.__ltDurations=()=>({calls:DUR_ST.calls,skipped:DUR_ST.skipped,none:DUR_ST.none,known:DUR_NONE.size});
+/* ---------- card + list renderers ---------- */
+const meta=v=>[v.views?num(v.views)+' views':'',v.pub?ago(v.pub):''].filter(Boolean).join(' · ');
+/* avatar for a card: the live channel object, else the avatar kept in the feed cache */
+const chAv=id=>((CH[id]&&CH[id].av)||CAV[id]||'');
+const cardOf=(v,i)=>'<button class="card" style="--i:'+Math.min(i||0,8)+'" data-v="'+esc(v.id)+'"><div class="thumb">'+thumbImg(v.id)+(v.views?'<u>'+num(v.views)+' views</u>':'')+'</div>'+
+  '<div class="meta">'+(v.ch&&chAv(v.ch)?'<img class="av" src="'+esc(chAv(v.ch))+'" alt="" onerror="this.style.visibility=\'hidden\'">':'<div class="av" style="background:'+g(hash(v.id))+'"></div>')+
+  '<div><b>'+esc(v.t)+'</b><span>'+esc(v.c)+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'')+'</span></div></div></button>';
+const list=(arr,el)=>{el.innerHTML=arr&&arr.length?arr.map(cardOf).join(''):'<div class="empty">Nothing here yet.</div>';setTimeout(depthKick,60)};
+
+/* ---------- chips ---------- */
+let cat='All';
+let secPending=null;   /* a chip section whose load was abandoned by a page switch */
+function homeResume(){  /* entering Home again: re-run it, on the skeletons already on screen */
+  const n=secPending;
+  if(!n||cat!==n)return;
+  if(!CUSTOM.some(c=>c[0]===n))return;
+  secPending=null;
+  chip(n);
+}
+const CATMAP={1:'Film',2:'Cars',10:'Music',15:'Animals',17:'Sports',19:'Travel',20:'Gaming',22:'People',23:'Comedy',24:'Entertainment',25:'News',26:'Howto',27:'Education',28:'Science',29:'Nonprofits'};
+let CATS=['All','Music','Gaming','Sports','Entertainment','News','Education'];
+const CUSTOM=[['Anime','anime'],['Cartoon','cartoon'],['Movies','movies']];
+const CHIPS_BASE=['All',...CUSTOM.map(c=>c[0])];
+function renderChips(){
+  const present=[...new Set(feed().map(v=>v.cat).filter(c=>c&&c!=='All'))];
+  CATS=['All',...CUSTOM.map(c=>c[0]),...present];
+  if(!CATS.includes(cat))cat='All';
+  $('chips').innerHTML=CATS.map(c=>'<button class="chip glass'+(c===cat?' on':'')+'">'+c+'</button>').join('');
+}
+function chip(n){
+  cat=n;
+  [...$('chips').querySelectorAll('.chip')].forEach(b=>b.classList.toggle('on',b.textContent===n));
+  const f=$('feed');
+  const custom=CUSTOM.find(c=>c[0]===n);
+  if(custom){                                  // Anime / Cartoon / Movies live in the top chips
+    f.style.opacity=0;
+    f.innerHTML='<div class="skl"></div><div class="skl"></div><div class="skl"></div>';
+    f.style.opacity=1;
+    secPending=null;
+    loadSection(custom[1]).then(items=>{
+      if(secPending===n)secPending=null;
+      if(cat!==n)return;                        // user moved on
+      list(items,f);
+      if(!items.length)f.innerHTML='<div class="empty">Could not load '+esc(n)+' videos right now.</div>';
+    }).catch(e=>{
+      if(e&&e.name==='AbortError'){             /* left the page: the skeletons stay, homeResume re-runs it */
+        if(cat===n)secPending=n;
+        return;
+      }
+      if(cat!==n)return;
+      list([],f);
+      f.innerHTML='<div class="empty">Could not load '+esc(n)+' videos right now.</div>';
+    });
+    return;
+  }
+  if(!FEED.trending&&!FEED.cached&&!FEED.error){   // nothing to show yet: keep the skeletons
+    f.innerHTML=LDR+SK3;
+    return;
+  }
+  f.style.opacity=0;
+  setTimeout(()=>{
+    const items=cat==='All'?feed():feed().filter(v=>v.cat===cat);
+    list(items,f);
+    if(!items.length)f.innerHTML='<div class="empty">Nothing in '+esc(cat)+' right now.</div>';
+    f.style.opacity=1;
+  },140);
+}
+$('chips').onclick=e=>{const b=e.target.closest('.chip');if(b)chip(b.textContent)};
+
+/* Long form only. YouTube Shorts can run up to 3 minutes, so anything at or
+   under that is treated as a short and never reaches the app. */
+const LONG_MIN=180;
+const SHORT_RE=/#shorts?\b|\/shorts\//i;
+const isShort=v=>!v||SHORT_RE.test(v.t||'')||(typeof v.dur==='number'&&v.dur>0&&v.dur<=LONG_MIN);
+async function dropShorts(list){
+  list=(list||[]).filter(v=>v&&!SHORT_RE.test(v.t||'')&&!PRIVATE_RE.test(v.t||''));
+  /* every item is measured, not just the unknown ones — but a list that already
+     holds a duration for each of its items skips the call entirely (no promise,
+     no request, no await tick on the render path). */
+  if(list.some(durUnknown))await loadDurations(list);
+  else DUR_ST.skipped++;
+  return list.filter(v=>!isShort(v));
+}
+
+/* ---------- explore (shelves) ---------- */
+const PLAY_IC=ic('home').replace(SVG_TAG_RE,'<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>');
+const SHELVES=[
+  {id:'multiai',title:'Multi AI Music',kind:'channel',ch:'UCNf1ThUNWLARtz8m86xOp1A'},
+  {id:'calm',title:'Calm music',q:'calm relaxing music playlist'},
+  {id:'aimusic',title:'AI music',q:'AI generated music song'}
+];
+const SHELF={};
+async function loadShelf(sh){
+  if(SHELF[sh.id])return SHELF[sh.id];
+  let list=[];
+  if(sh.kind==='channel'){
+    const c=await ensureChannel(sh.ch);
+    if(!pageWanted('explore'))throw rqAbort();   /* left Explore while the channel was loading */
+    if(!c.up)throw new Error('no uploads');
+    const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:10},'explore');
+    list=(j.items||[]).filter(it=>it.snippet&&it.snippet.resourceId).map(it=>vObj(it.snippet.resourceId.videoId,
+      {t:dec(it.snippet.title),c:c.title,ch:sh.ch,pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:sh.title}));
+  }else{
+    const j=await yt('search',{part:'snippet',type:'video',maxResults:10,q:sh.q},'explore');
+    list=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
+      {t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,pub:it.snippet.publishedAt,cat:sh.title}));
+    if(!pageWanted('explore'))throw rqAbort();
+    await loadChannels(list.map(v=>v.ch));
+  }
+  list=await dropShorts(list);
+  SHELF[sh.id]=list;return list;
+}
+/* the carousel placeholders, used both for the boot skeleton and by renderExplore */
+const shelfSkeleton=()=>SHELVES.map(sh=>'<div class="vh"><h2>'+esc(sh.title)+'</h2><button class="va glass" data-shelf="'+sh.id+'">View All</button></div>'+
+  '<div class="car" id="car-'+sh.id+'"><div class="skl"></div><div class="skl"></div></div>').join('');
+/* A shelf's load is tagged 'explore' (see loadShelf), so it can be abandoned
+   when the user leaves Explore. SHELF_BUSY keeps a shelf that is already on the
+   wire from being started twice when Explore is re-entered, and the abort path
+   leaves the placeholder alone instead of blanking the carousel — exploreResume
+   re-runs it the moment the tab is on screen again. */
+const SHELF_BUSY=new Set();
+function fillShelf(sh,list){
+  const el=document.getElementById('car-'+sh.id);
+  if(!el)return;
+  el.innerHTML=list.slice(0,6).map(v=>'<div class="big" data-v="'+esc(v.id)+'"><img src="'+THUMB_BASE+esc(v.id)+'/hqdefault.jpg" alt=""><div><b>'+esc(v.t)+'</b><small>'+esc(v.c)+'</small></div><button class="play glass" data-v="'+esc(v.id)+'">'+PLAY_IC+'Play</button></div>').join('');
+}
+function paintShelf(sh){
+  if(SHELF_BUSY.has(sh.id))return;           /* already on the wire: it fills itself */
+  SHELF_BUSY.add(sh.id);
+  loadShelf(sh).then(list=>{SHELF_BUSY.delete(sh.id);fillShelf(sh,list)})
+    .catch(e=>{
+      SHELF_BUSY.delete(sh.id);
+      if(e&&e.name==='AbortError')return;    /* the page was left: exploreResume picks it up again */
+      const el=document.getElementById('car-'+sh.id);if(el)el.innerHTML='';
+    });
+}
+function renderExplore(){
+  $('ex').innerHTML=shelfSkeleton();
+  SHELVES.forEach(paintShelf);
+}
+/* entering Explore again: only the shelves that never landed are re-driven, so
+   the ones already on screen are untouched */
+function exploreResume(){
+  SHELVES.forEach(sh=>{if(!SHELF[sh.id])paintShelf(sh)});
+}
+
+/* ---------- anime + cartoon (Hindi, no reactions) ---------- */
+const BADRE=/\breaction\b|\breacts?\b|\breacting\b|reaction\s*[!|]/i;
+const SECTIONS={
+  anime:{
+    el:'animefeed', key:'lt_anime', q:'anime hindi dubbed full episode',
+    channels:['UCbooIOzIduLDQuXnjymX0LA','UCE_unrO5vPA_c-Kpci0zdxw','UCF-GU6WZnkTNto62Ew7n2Aw','UC7eHSvqnDbZLCtW3JjPAg3A']
+  },
+  cartoon:{
+    el:'cartoonfeed', key:'lt_cartoon', q:'cartoon hindi full episode',
+    channels:['UC9iBBFfq7L3ipvodSLrU8gQ','UCj-SWZSE0AmotGSQ3apROHw','UCkytZQj3NccDV3tLMoOxRIQ','UCYhdnzvcr5g22CmvcwpPhrQ','UCiBigY9XM-HaOxUc269ympg']
+  },
+  movies:{
+    el:'moviesfeed', key:'lt_movies', q:'animated hindi movie full',
+    channels:['UCkytZQj3NccDV3tLMoOxRIQ','UCYhdnzvcr5g22CmvcwpPhrQ','UC9iBBFfq7L3ipvodSLrU8gQ','UCj-SWZSE0AmotGSQ3apROHw','UCuvZqGuCLbDBdoP9-MPVsqg']
+  }
+};
+const SEC={};
+
+function keep(v){
+  const t=(v.t||'');
+  if(!t)return false;
+  if(BADRE.test(t))return false;          // no reaction videos
+  if(SHORTS_TAG_RE.test(t))return false;
+  if(PRIVATE_RE.test(t))return false;
+  return true;
+}
+
+async function loadSection(name){
+  if(SEC[name])return SEC[name];
+  const cfg=SECTIONS[name];
+  try{
+    const c=JSON.parse(localStorage.getItem(cfg.key)||'null');
+    if(c&&c.at&&Date.now()-c.at<12*36e5&&Array.isArray(c.items)&&c.items.length){
+      c.items.forEach(it=>vObj(it.id,it));
+      SEC[name]=c.items.map(it=>V[it.id]).filter(Boolean);
+      if(SEC[name].length)return SEC[name];
+    }
+  }catch(e){}
+
+  const out=[];
+  for(const chId of cfg.channels){
+    if(!pageWanted('home'))throw rqAbort();      /* left the page: stop, homeResume re-runs the section */
+    try{
+      const c=await ensureChannel(chId);
+      if(!c.up)continue;
+      const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:12},'home');
+      (j.items||[]).forEach(it=>{
+        const v=it.snippet&&it.snippet.resourceId;
+        if(!v||!v.videoId)return;
+        out.push(vObj(v.videoId,{t:dec(it.snippet.title),c:c.title,ch:chId,
+          pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,
+          cat:name==='anime'?'Anime':name==='cartoon'?'Cartoon':'Animation'}));
+      });
+    }catch(e){if(e&&e.name==='AbortError')throw e}   /* abandoned: stop the whole section */
+  }
+  let clean=await dropShorts(out.filter(keep));
+  if(clean.length<8&&cfg.q){
+    try{
+      const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:cfg.q,
+        videoDuration:'long',relevanceLanguage:'hi',regionCode:'IN',videoEmbeddable:'true'},'home');
+      const extra=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
+        {t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,
+         pub:it.snippet.publishedAt,cat:name==='anime'?'Anime':name==='cartoon'?'Cartoon':'Animation'}));
+      clean=clean.concat(await dropShorts(extra.filter(keep)));
+    }catch(e){if(e&&e.name==='AbortError')throw e}
+  }
+  const seen=new Set();
+  clean=clean.filter(v=>!seen.has(v.id)&&seen.add(v.id));
+  const hi=v=>HINDI_RE.test(v.t||'')?1:0;
+  clean.sort((a,b)=>hi(b)-hi(a));      // Hindi titles first, then the rest
+  await loadChannels(clean.map(v=>v.ch));
+  SEC[name]=clean;
+  try{localStorage.setItem(cfg.key,JSON.stringify({at:Date.now(),
+    items:clean.map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,pub:v.pub,cat:v.cat}))}))}catch(e){}
+  return clean;
+}
+async function renderSection(name){
+  const cfg=SECTIONS[name];
+  const box=document.getElementById(cfg.el);
+  if(!box)return;
+  if(box.dataset.done)return;
+  box.innerHTML='<div class="skl"></div><div class="skl"></div><div class="skl"></div>';
+  let list2;
+  try{list2=await loadSection(name)}
+  catch(e){if(e&&e.name==='AbortError')return;throw e}   /* left the page: leave it undone, retry later */
+  box.dataset.done='1';
+  if(!list2.length){
+    box.innerHTML='<div class="empty">Could not load '+name+' videos right now.<br>Try again in a minute.</div>';
+    return;
+  }
+  box.innerHTML=list2.map(cardOf).join('');
+}
+
+/* ---------- subscriptions ---------- */
+let selCh=null;
+function renderSubs(){
+  const chs=[...new Set(feed().map(v=>v.ch).filter(Boolean))].slice(0,10);
+  $('sg').innerHTML=chs.map(id=>{const c=CH[id]||{};return '<button data-ch="'+esc(id)+'">'+(c.av?'<img src="'+esc(c.av)+'" alt="">':'<i style="background:'+g(hash(id))+'"></i>')+esc((c.title||'Channel').split(' ')[0])+'</button>'}).join('');
+  subs();
+}
+function subs(){
+  [...$('sg').querySelectorAll('button')].forEach(b=>b.classList.toggle('on',b.dataset.ch===selCh));
+  const c=selCh?CH[selCh]:null;
+  $('subh').textContent=c?c.title:'Latest';
+  list(selCh?feed().filter(v=>v.ch===selCh):feed().slice(0,6),$('subfeed'));
+}
+$('sg').addEventListener('click',e=>{const b=e.target.closest('[data-ch]');if(b){selCh=selCh===b.dataset.ch?null:b.dataset.ch;subs()}});
+
+/* ---------- player ---------- */
+let cur=null;
+function mount(id,title){
+  const a=$('pl').querySelector('.art');
+  a.innerHTML=LDRABS+'<iframe src="'+EMBED_BASE+esc(id)+'?autoplay=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1'+(S.opt.cc?'&cc_load_policy=1':'')+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="'+esc(title||'')+'"></iframe>';
+  const f=a.querySelector('iframe');
+  f.addEventListener('load',()=>{try{f.contentWindow.postMessage(JSON.stringify({event:'listening'}),'*')}catch(e){}});
+}
+function play(id){
+  const v=V[id];if(!v)return;
+  if(isShort(v)){toast('Shorts are turned off');return}
+  cur=v;
+  $('sheet').classList.remove('on');
+  S.hist=S.hist.filter(x=>x!==id);S.hist.unshift(id);S.hist=S.hist.slice(0,100);
+  S.vd[id]={id,t:v.t,c:v.c,ch:v.ch,pub:v.pub,views:v.views};
+  {const keep=new Set([...S.hist,...S.liked,...S.later]);Object.keys(S.vd).forEach(x=>{if(!keep.has(x))delete S.vd[x]})}
+  save();
+  mount(id,v.t);
+  $('ptitle').textContent=v.t;
+  $('pmeta').textContent=v.c+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'');
+  $('ppp').textContent=S.liked.includes(id)?'Liked':'Like';
+  $('plk').textContent='Channel';
+  $('pl').classList.add('on');$('scrim').classList.add('on');
+  if(v.ch)loadChannels([v.ch]).then(()=>{if(cur&&cur.id===id)$('pmeta').textContent=v.c+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'')});
+}
+$('ppp').onclick=()=>{if(!cur)return;toggle(S.liked,cur.id);$('ppp').textContent=S.liked.includes(cur.id)?'Liked':'Like'};
+$('plk').onclick=()=>{if(cur&&cur.ch){closeAll();openChannel(cur.ch)}};
+$('psave').onclick=()=>{if(!cur)return;const on2=toggle(S.later,cur.id);toast(on2?'Saved to Watch later':'Removed from Watch later')};
+$('pcm').onclick=()=>{if(!cur)return;closeAll();sheet('Comments','<div class="empty">Comments open on YouTube for this video.</div>',0)};
+$('pclose').onclick=closeAll;
+
+/* loop, driven by the player's own message channel (no playlist param) */
+addEventListener('message',e=>{
+  const o=String(e.origin||'');
+  if(!YT_ORIGIN_RE.test(o))return;
+  let d=e.data;if(typeof d==='string'){try{d=JSON.parse(d)}catch(x){return}}
+  if(!d||d.event!=='onStateChange')return;
+  if(+d.info===0&&S.opt.loop&&cur)mount(cur.id,cur.t);
+});
+
+/* ---------- channel sheet ---------- */
+function openChannel(id){
+  sheet('Channel',LDR+'<div class="skl" style="height:120px"></div>',0);
+  ensureChannel(id).then(c=>{
+    const st=[c.vids?num(c.vids)+' videos':'',c.subs?num(c.subs)+' subscribers':'',c.views?num(c.views)+' views':''].filter(Boolean).join(' · ');
+    const jd=c.joined?dfmt(new Date(c.joined)):'';
+    const subbed=S.subs.includes(c.id);
+    $('sht').textContent=c.title;
+    $('shb').innerHTML='<div class="chh">'+(c.av?'<img src="'+esc(c.av)+'" alt="">':'<div class="av" style="background:'+g(hash(c.id))+'"></div>')+
+      '<div><b>'+esc(c.handle)+'</b><div class="mt2">'+esc(st)+'</div></div></div>'+
+      '<button class="opt glass" data-chsub="'+esc(c.id)+'">'+(subbed?'Subscribed':'Subscribe')+'</button>'+
+      '<div class="about">'+(jd?'<div><span>Joined</span><b>'+esc(jd)+'</b></div>':'')+(c.country?'<div><span>Country</span><b>'+esc(cname(c.country))+'</b></div>':'')+
+      (c.views?'<div><span>Total views</span><b>'+num(c.views)+'</b></div>':'')+(c.subs?'<div><span>Subscribers</span><b>'+num(c.subs)+'</b></div>':'')+
+      (c.vids?'<div><span>Videos</span><b>'+num(c.vids)+'</b></div>':'')+'</div>'+
+      (c.desc?'<div class="desc">'+esc(c.desc)+'</div>':'')+
+      '<div id="chlist">'+LDR+'<div class="skl"></div><div class="skl"></div></div>';
+    if(!c.up){$('chlist').innerHTML='<div class="empty">This channel hides its uploads.</div>';return}
+    yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:50}).then(j=>{
+      const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:dec(it.snippet.title),c:c.title,ch:c.id,
+        pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:'Channel'}));
+      return dropShorts(items).then(clean=>{$('chlist').innerHTML=clean.map(cardOf).join('')||'<div class="empty">No videos.</div>'});
+    }).catch(()=>{$('chlist').innerHTML='<div class="empty">Could not load videos.</div>'});
+  }).catch(e=>{$('sht').textContent='Channel';$('shb').innerHTML='<div class="empty">'+esc(e.message||'Could not load')+'</div>'});
+}
+
+/* ---------- library sheet (avatar button) ---------- */
+function openLibrary(){
+  const row=(id,label)=>'<button class="opt glass" data-lib="'+id+'">'+label+'</button>';
+  sheet('You',row('hist','History · '+S.hist.length)+row('liked','Liked · '+S.liked.length)+row('later','Watch later · '+S.later.length)+
+    row('settings','Settings')+row('clear','Clear history'),0);
+}
+
+/* ---------- settings ---------- */
+function settingsHTML(){
+  const lay=S.opt.layout||'phone';
+  const btn=(id,label)=>'<button data-lay="'+id+'" class="'+(lay===id?'on':'')+'">'+label+'</button>';
+  return '<div class="setrow"><span>Glass transparency</span><input id="gsl" type="range" min="0" max="100" value="'+S.opt.glass+'" style="--p:'+S.opt.glass+'%"></div>'+
+    '<div style="font-size:12.5px;color:var(--mute);margin:-4px 2px 12px">0% solid glass · 100% fully see-through</div>'+
+    '<div style="font-size:13px;font-weight:700;margin:0 2px 8px">Layout</div>'+
+    '<div class="laychips">'+btn('phone','Phone')+btn('tablet','Tablet')+btn('full','Full screen')+'</div>'+
+    '<button class="opt glass" data-tgl="theme">Theme: '+(document.documentElement.dataset.theme==='dark'?'dark':'light')+'</button>'+
+    '<button class="opt glass" data-opt="depth">3D depth: '+(DEPTH()?'on':'off')+'</button>'+
+    '<button class="opt glass" data-opt="parallax">Parallax: '+(PARALLAX()?'on':'off')+'</button>'+
+    '<div class="setrow"><span>Depth &amp; parallax</span><input id="dsl" type="range" min="0" max="100" value="'+S.opt.pdepth+'" style="--p:'+S.opt.pdepth+'%"></div>'+
+    '<button class="opt glass" data-opt="cc">Captions: '+(S.opt.cc?'on':'off')+'</button>'+
+    '<button class="opt glass" data-opt="loop">Loop: '+(S.opt.loop?'on':'off')+'</button>'+
+    '<button class="opt glass" data-opt="cmt">Comments: '+(S.opt.cmt?'on':'off')+'</button>';
+}
+$('sheet').addEventListener('input',e=>{
+  if(e.target.id==='dsl'){
+    S.opt.pdepth=+e.target.value;save();
+    e.target.style.setProperty('--p',S.opt.pdepth+'%');
+    depthKick();return;
+  }
+  if(e.target.id!=='gsl')return;
+  S.opt.glass=+e.target.value;save();
+  e.target.style.setProperty('--p',S.opt.glass+'%');
+  applyGlass();
+});
+$('sheet').addEventListener('click',e=>{
+  const th=e.target.closest('[data-tgl="theme"]');
+  if(th){toggleTheme();th.textContent='Theme: '+(document.documentElement.dataset.theme==='dark'?'dark':'light');return}
+  const b=e.target.closest('[data-lay]');
+  if(!b)return;
+  S.opt.layout=b.dataset.lay;save();applyLayout();
+  [...$('sheet').querySelectorAll('[data-lay]')].forEach(x=>x.classList.toggle('on',x.dataset.lay===S.opt.layout));
+});
+
+/* ---------- sheets ---------- */
+function sheet(t,h,inp){
+  $('sht').textContent=t;$('shb').innerHTML=h;$('shi').classList.toggle('on',!!inp);
+  $('sheet').classList.add('on');$('scrim').classList.add('on');
+}
+function closeAll(){['sheet','pl'].forEach(i=>$(i).classList.remove('on'));$('scrim').classList.remove('on');const a=$('pl').querySelector('.art');if(a)a.innerHTML=''}
+$('scrim').onclick=closeAll;
+$('shb').addEventListener('click',e=>{
+  const s=e.target.closest('[data-chsub]');
+  if(s){const on2=toggle(S.subs,s.dataset.chsub);s.textContent=on2?'Subscribed':'Subscribe';toast(on2?'Subscribed':'Unsubscribed');return}
+  const l=e.target.closest('[data-lib]');
+  if(l){
+    const k=l.dataset.lib;
+    if(k==='clear'){S.hist=[];save();toast('History cleared');closeAll();return}
+    if(k==='settings'){sheet('Settings',settingsHTML(),0);return}
+    const ids=k==='hist'?S.hist:k==='liked'?S.liked:S.later;
+    sheet(k==='hist'?'History':k==='liked'?'Liked videos':'Watch later',
+      ids.length?ids.map(id=>V[id]?cardOf(V[id]):'').join(''):'<div class="empty">Nothing saved yet.</div>',0);
+  }
+  const o=e.target.closest('[data-opt]');
+  if(o){const k=o.dataset.opt;S.opt[k]=S.opt[k]?0:1;save();if(k==='depth')applyDepth();
+    if(k==='parallax')applyParallax();
+    o.textContent=({cc:'Captions',loop:'Loop',cmt:'Comments',depth:'3D depth',parallax:'Parallax'})[k]+': '+(S.opt[k]?'on':'off')}
+});
+$('shpost').onclick=()=>toast('Comments open on YouTube');
+
+/* ---------- search ---------- */
+const qi=$('q');
+function openS(){$('search').classList.add('on');setTimeout(()=>qi.focus(),250)}
+$('sopen').onclick=openS;
+$('cancel').onclick=()=>{$('search').classList.remove('on');qi.blur()};
+$('sug').innerHTML=['lofi','AI music','calm piano','telugu songs','apple event'].map(s=>'<button class="glass">'+s+'</button>').join('');
+$('sug').onclick=e=>{const b=e.target.closest('button');if(b){qi.value=b.textContent;find()}};
+let seq=0;
+async function find(){
+  const t=qi.value.trim();
+  $('sug').style.display=t?'none':'flex';
+  if(!t){$('results').innerHTML='';return}
+  const id=++seq;
+  $('results').innerHTML=LDR+'<div class="skl"></div><div class="skl"></div>';
+  try{
+    const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:t});
+    if(id!==seq)return;
+    let list=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
+      {t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,pub:it.snippet.publishedAt,cat:'Result'}));
+    list=await dropShorts(list);
+    await loadChannels(list.map(v=>v.ch));
+    if(id!==seq)return;
+    $('results').innerHTML=list.length?list.map(cardOf).join(''):'<div class="empty">No videos match that.</div>';
+  }catch(e){
+    const q=QUOTA_RE.test(String(e.message||''));
+    $('results').innerHTML='<div class="empty">'+(q?"YouTube's daily search limit is used up.":'Search failed. '+esc(e.message||''))+'</div>';
+  }
+}
+qi.oninput=find;
+
+/* ---------- global taps ---------- */
+document.addEventListener('click',e=>{
+  const v=e.target.closest('[data-v]');
+  if(v&&!e.target.closest('.play')){play(v.dataset.v);return}
+  const p=e.target.closest('.play');
+  if(p){play(p.dataset.v);return}
+  const sh=e.target.closest('[data-shelf]');
+  if(sh){const s=SHELVES.find(x=>x.id===sh.dataset.shelf);openS();qi.value=s?(s.q||s.title):'';if(qi.value)find();return}
+  const d=e.target.closest('[data-do]');
+  if(d){const k=d.dataset.do;k==='you'?openLibrary():k==='bell'?sheet('Notifications','<div class="empty">No new notifications.</div>',0):k==='plus'?sheet('Create','<button class="opt glass" data-do="upload">Upload a video</button>',0):toast('Not available on this device')}
+});
+
+/* ---------- theme ---------- */
+function toggleTheme(){
+  const d=document.documentElement;
+  const dark=isDark();
+  d.dataset.theme=dark?'light':'dark';
+  applyGlass();
+}
+
+/* ---------- boot ---------- */
+Object.values(S.vd||{}).forEach(o=>{if(o&&o.id)vObj(o.id,o)});
+/* ---------- startup timeline ----------
+   Milestones in the order they happen, ms from navigation start:
+   lt:shell → lt:cache → lt:reveal → lt:paint (skeleton frame) → lt:req (first API
+   call leaving) → lt:data → lt:feed → lt:feedpaint → lt:input.
+   Each mark is two numbers in a fixed-size array — no DOM, no request, no storage
+   while booting — and the whole run is written out once, as a single line, when
+   the boot has settled. That line carries every milestone and the previous boot's
+   total, so a regression is a bigger number in the log rather than something felt
+   later. It stays on window.__ltTimeline for tools/startup-bench.js, and the
+   WebView forwards only `lt-` lines to logcat (see MainActivity). */
+const TL_CAP=16,TL=[];                      /* hard bound: marks past this are dropped */
+let tlDone=false,tlTimer=0;
+const mark=n=>{
+  if(TL.length<TL_CAP)TL.push([n,Math.round(performance.now())]);
+  try{performance.mark('lt:'+n)}catch(e){}
+  tlSettle();
+};
+/* The timeline is written as soon as the feed has painted — that is the end of
+   the boot — so the line never waits on anything. The deferred-listener mark is
+   included when it landed before that (it usually does: it is attached in an idle
+   slot after the skeleton frame, well before the feed comes back); when it has
+   not, it is simply absent from the line. A boot that never reaches feedpaint is
+   written out by the deadline below, with whatever it managed to reach. */
+function tlSettle(){
+  if(tlDone)return;
+  for(let i=0;i<TL.length;i++)if(TL[i][0]==='feedpaint')return tlFlush();
+}
+const TL_KEY='lt_boot';
+function tlFlush(partial){
+  if(tlDone)return;tlDone=true;clearTimeout(tlTimer);
+  try{
+    const ms={};TL.forEach(m=>{ms[m[0]]=m[1]});
+    let total=0;for(const k in ms)if(ms[k]>total)total=ms[k];   /* when the boot finished */
+    let prev=0;
+    try{const p=JSON.parse(localStorage.getItem(TL_KEY)||'0');prev=(p&&p.v===1&&+p.t)||0}catch(e){}
+    let line='lt-startup';
+    ['shell','cache','reveal','paint','req','data','feed','feedpaint','input'].forEach(n=>{
+      if(n in ms)line+=' '+n+'='+ms[n];
+    });
+    /* warm = this boot painted the cached feed ('cache' is only marked on that
+       path), err = the feed came back as an error; both are what the numbers
+       above have to be read against. */
+    line+=' total='+total+' prev='+prev+(prev?' vs_prev='+(total-prev>0?'+':'')+(total-prev):'')
+      +' warm='+('cache' in ms?1:0)+' err='+(FEED.error?1:0)+(partial?' partial=1':'');
+    window.__ltTimeline=line;
+    try{localStorage.setItem(TL_KEY,JSON.stringify({v:1,t:total,at:Date.now()}))}catch(e){}
+    try{console.info(line)}catch(e){}
+  }catch(e){}
+}
+tlTimer=setTimeout(()=>tlFlush(1),12000);   /* last resort: never leave a boot unlogged */
+let revealed=false;
+const reveal=()=>{
+  if(revealed)return;revealed=true;
+  if(window.__ltRestNow)window.__ltRestNow();
+  const sp=$('splash');
+  if(sp&&!sp.classList.contains('out')){sp.classList.add('out');$('app').classList.add('ready')}
+  mark('reveal');
+};
+/* Hard stop: nothing below may hold the splash up for more than 7 s. */
+setTimeout(reveal,7000);
+
+/* First-frame-ready signal: resolves once the frame that carries the shell has
+   actually been painted. Two rAFs land us after that frame; the timer and the
+   visibility check cover a WebView that is not rendering at all (started in the
+   background, or one that never fires rAF). Cached, so anything that needs the
+   signal later gets the same promise. */
+let frameReady=null;
+function firstFrame(){
+  if(frameReady)return frameReady;
+  return frameReady=new Promise(res=>{
+    let done=false;
+    const fin=()=>{if(done)return;done=true;mark('paint');res()};
+    if(document.visibilityState==='hidden')return fin();
+    requestAnimationFrame(()=>requestAnimationFrame(fin));
+    setTimeout(fin,400);
+  });
+}
+window.__ltFirstFrame=firstFrame;
+/* Skeleton shell: the loading state the app already ships — the static #feed
+   skeletons, the chip row, the carousel placeholders — painted before the feed
+   request comes back, so the first frame is the shell and the splash never sits
+   on the network. It starts no request of its own. */
+const SK3='<div class="skl"></div><div class="skl"></div><div class="skl"></div>';
+function paintSkeleton(){
+  if(feed().length){                           /* last feed known: real cards, no request */
+    renderChips();
+    list(feed(),$('feed'));
+    mark('cache');
+  }else{
+    $('chips').innerHTML=CHIPS_BASE.map(c=>'<button class="chip glass'+(c===cat?' on':'')+'">'+c+'</button>').join('');
+    $('feed').innerHTML=LDR+SK3;
+  }
+  $('ex').innerHTML=shelfSkeleton();
+  $('subfeed').innerHTML=SK3;
+}
+function paintShell(){
+  renderChips();
+  list(feed(),$('feed'));
+  if(!feed().length&&FEED.error)$('feed').innerHTML='<div class="empty">Could not load videos.<br>'+esc(FEED.error)+'</div>';
+  renderExplore();
+  renderSubs();
+}
+/* Boot, in two stages. Stage 1 needs no network: the shell and its skeletons are
+   painted and the splash leaves on the first frame the app can actually produce,
+   however long the feed takes. Stage 2 lands the data and swaps the skeletons for
+   cards in place. Nothing waits on a timer. */
+/* The last feed, if there is one, is on screen before the first frame: this is
+   the only stage-1 work that reads storage, and it costs one JSON.parse. */
+{const fc=readFeedCache();
+ if(fc){Object.assign(CAV,fc.chav);fc.items.forEach(o=>vObj(o.id,o));FEED.cached=fc.items;FEED.at=fc.at}}
+paintSkeleton();
+mark('shell');
+reveal();
+firstFrame();                                    /* lt:paint = the skeleton frame */
+loadTrending().catch(e=>{if(!FEED.error)FEED.error=(e&&e.message)||'offline'})
+  .then(()=>{
+    mark('data');
+    if(window.__ltRestNow)window.__ltRestNow();   /* deferred sheet before the cards paint */
+    try{paintShell()}catch(e){}
+    reveal();
+    mark('feed');
+    requestAnimationFrame(()=>requestAnimationFrame(()=>mark('feedpaint')));
+    return firstFrame();
+  });
+
+/* ---------- 3D depth: cards tilt under the finger ---------- */
+const DEPTH=()=>S.opt.depth!==0;
+const K=()=>Math.max(0,Math.min(100,+S.opt.pdepth||0))/100;   // 0 = flat, 1 = full depth
+function applyDepth(){document.documentElement.dataset.depth=DEPTH()?'on':'off'}
+applyDepth();
+
+let tiltEl=null;
+function tiltStart(e){
+  if(!DEPTH())return;
+  const card=e.target.closest('.card');
+  if(!card||e.pointerType==='mouse')return;
+  tiltEl=card;card.classList.add('tilt');
+}
+function tiltMove(e){
+  if(!tiltEl||!DEPTH())return;
+  if(!tiltEl.classList.contains('tilt'))tiltEl.classList.add('tilt');
+  const r=tiltEl.getBoundingClientRect();
+  const px=(e.clientX-r.left)/r.width-.5;      // -0.5 .. 0.5
+  const py=(e.clientY-r.top)/r.height-.5;
+  const k=K();
+  const rx=(-py*9*k).toFixed(2), ry=(px*11*k).toFixed(2);
+  tiltEl.style.transform=`rotateX(${rx}deg) rotateY(${ry}deg) translateZ(${(10*k).toFixed(1)}px) scale(${(1+0.015*k).toFixed(3)})`;
+}
+function tiltEnd(){
+  if(!tiltEl)return;
+  const c=tiltEl;tiltEl=null;
+  c.style.transform='';
+  setTimeout(()=>c.classList.remove('tilt'),260);
+}
+/* ---------- parallax: layers drift at different speeds (scroll + phone tilt) ---------- */
+const PARALLAX=()=>S.opt.parallax!==0;
+let gyroX=0,gyroY=0;
+function applyParallax(){
+  const on=PARALLAX();
+  document.documentElement.dataset.parallax=on?'on':'off';
+  if(!on){
+    document.querySelectorAll('.page').forEach(p=>p.style.backgroundPositionY='');
+    document.querySelectorAll('.thumb img').forEach(i=>i.style.transform='');
+  }
+}
+applyParallax();
+/* Named, not anonymous: the sensor subscription is one of the listeners that is
+   attached after the first frame (see bindInput), so it must be referable. */
+function onOrient(e){
+  if(!PARALLAX())return;
+  gyroX=Math.max(-1,Math.min(1,(e.gamma||0)/35));
+  gyroY=Math.max(-1,Math.min(1,((e.beta||0)-45)/40));
+  parallaxKick();
+}
+
+/* Read pass, then write pass. This used to interleave the two: the page's own
+   writes (background offset, header, dock and chip drift) dirtied the style tree
+   before the first rect was measured, so that first thumbnail read paid for a
+   full recalc, and every card after it forced the next one. Nothing written here
+   changes layout — transform and background-position only — so measuring the
+   whole frame first and writing afterwards yields exactly the same values, with
+   one layout flush per frame instead of one per element. */
+const relBuf=[];
+function parallaxScroll(){
+  if(!PARALLAX())return;
+  const k=K();
+  const vh=innerHeight;
+  const pg=document.querySelector('.page:not([inert])');
+  const top=document.querySelector('.page:not([inert]) .top');
+  const dock=document.querySelector('.dock');
+  const chips=document.querySelector('.page:not([inert]) .chips');
+  const imgs=document.querySelectorAll('.page .thumb img');
+
+  /* ---- read pass ---- */
+  const st=pg?pg.scrollTop:0;
+  relBuf.length=0;
+  for(let i=0;i<imgs.length;i++){
+    const r=imgs[i].parentElement.getBoundingClientRect();
+    relBuf.push(r.bottom<-80||r.top>vh+80?null:(r.top+r.height/2-vh/2)/(vh/2));   // -1 .. 1, null = off screen
+  }
+
+  /* ---- write pass ---- */
+  if(pg)pg.style.backgroundPositionY=(-st*0.22*k).toFixed(1)+'px';
+
+  /* the whole shell drifts: header, dock and chip row all move a little */
+  if(top&&pg)top.style.transform=`translate3d(${(gyroX*3*k).toFixed(2)}px,${(-Math.min(st,120)*0.06*k).toFixed(2)}px,0)`;
+  if(dock)dock.style.transform=`translate3d(${(gyroX*5*k).toFixed(2)}px,${(gyroY*2.5*k).toFixed(2)}px,0)`;
+  if(chips)chips.style.transform=`translate3d(${(gyroX*-2.5*k).toFixed(2)}px,0,0)`;
+  const x=gyroX*2.5*k;
+  for(let i=0;i<imgs.length;i++){
+    const rel=relBuf[i];
+    if(rel===null)continue;
+    const y=(-rel*7*k)+gyroY*2.5*k;
+    imgs[i].style.transform=`translate3d(${x.toFixed(2)}%,${y.toFixed(2)}%,0) scale(1.14)`;
+  }
+}
+
+/* cards recede slightly as they move away from the centre of the screen.
+   Same split as the parallax pass, and it matters more here: this is the loop the
+   first depth frame after boot and every scroll frame runs, over every card on
+   every page. All the rects are measured before the first transform is written,
+   so the frame lays out once instead of once per card. The buffer keeps the two
+   reasons to skip a card apart — off screen (transform cleared, as before) and
+   under the finger (left exactly as the tilt wrote it). */
+let depthRaf=0;
+const rectBuf=[],SKIP_CARD=-1;
+function depthScroll(){
+  if(!DEPTH())return;
+  const vh=innerHeight;
+  const k=K();
+  const cards=document.querySelectorAll('.page .card');
+
+  /* ---- read pass ---- */
+  rectBuf.length=0;
+  for(let i=0;i<cards.length;i++){
+    const c=cards[i];
+    if(c.classList.contains('tilt')){rectBuf.push(SKIP_CARD);continue}
+    const r=c.getBoundingClientRect();
+    rectBuf.push(r.bottom<-80||r.top>vh+80?null:[r.top,r.height]);
+  }
+
+  /* ---- write pass ---- */
+  for(let i=0;i<cards.length;i++){
+    const m=rectBuf[i],c=cards[i];
+    if(m===SKIP_CARD)continue;
+    if(m===null){c.style.transform='';continue}
+    const d=Math.min(1,Math.abs((m[0]+m[1]/2)-vh/2)/(vh*0.62));
+    c.style.transform=`translateZ(${(-d*30*k).toFixed(1)}px) scale(${(1-d*0.05*k).toFixed(3)})`;
+    c.style.opacity=(1-d*0.18*k).toFixed(3);
+  }
+}
+let parallaxRaf=0;
+function parallaxKick(){if(!PARALLAX())return;cancelAnimationFrame(parallaxRaf);parallaxRaf=requestAnimationFrame(parallaxScroll)}
+function depthKick(){parallaxKick();if(!DEPTH())return;cancelAnimationFrame(depthRaf);depthRaf=requestAnimationFrame(depthScroll)}
+/* Non-critical input listeners — the gyro subscription, the scroll/resize that
+   drive the parallax and depth passes, and the four document-level pointer
+   listeners behind the card tilt — are attached only once the shell's first
+   frame has actually been painted, in the next idle slot. None of them can
+   affect anything the user sees before that frame: at that point nothing has
+   been scrolled, nothing has been tilted and no orientation sample has arrived.
+   Attaching them at parse time instead meant the sensor pipeline could start,
+   and a document-level scroll handler could run its full parallax/depth pass,
+   while the splash was still up. Everything else (clicks, image load/error,
+   the player's message bridge, the layout resize) stays bound from the start,
+   because those are needed on the very first interaction or the first paint. */
+let inputBound=false;
+function bindInput(){
+  if(inputBound)return;inputBound=true;
+  addEventListener('deviceorientation',onOrient,{passive:true});
+  document.addEventListener('scroll',depthKick,{capture:true,passive:true});
+  addEventListener('resize',depthKick);
+  document.addEventListener('pointerdown',tiltStart,{passive:true});
+  document.addEventListener('pointermove',tiltMove,{passive:true});
+  document.addEventListener('pointerup',tiltEnd,{passive:true});
+  document.addEventListener('pointercancel',tiltEnd,{passive:true});
+  /* If the page had already been scrolled in the window before these landed,
+     sync the depth/parallax state once. Guarded on a non-zero offset so the
+     at-rest frame is exactly what it was: with nothing scrolled, no scroll
+     event would have fired before either, so no pass may run. */
+  const pg=document.querySelector('.page:not([inert])');
+  if(pg&&pg.scrollTop>0)depthKick();
+  mark('input');
+}
+function scheduleInput(){
+  if(window.requestIdleCallback)requestIdleCallback(bindInput,{timeout:600});
+  else setTimeout(bindInput,0);
+}
+if(window.__ltFirstFrame)window.__ltFirstFrame().then(scheduleInput);
+else scheduleInput();
+
+/* ---------- toast ---------- */
+let tt;function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('on'),2200)}
+
+/* ---------- dock: glass lens + sliding pages (from the reference) ---------- */
+const P=['home','explore','subs'].map(n=>$('p-'+n)),T=['home','explore','subs'],L=['Home','Explore','Subscriptions'],N=T.length;
+$('tabrow').innerHTML=T.map((t,i)=>`<button class="tab" tabindex="0" data-i="${i}">${ic(t)}${L[i]}</button>`).join('');
+const tabs=$('tabs'),tabEls=[...tabs.querySelectorAll('.tab')];
+/* Restart the lens' jelly and the page's staggered rise animations. A restart
+   only takes effect once the "animation:none" state has been committed, so one
+   style flush is unavoidable — but one flush for the whole batch replaces the
+   nine the old per-element loop forced (one for the lens, then one per element).
+   Read pass first, then the write pass. */
+function replay(p){
+  const els=[...p.querySelectorAll('.chip,.vh,.card,.big,#sg>button')].slice(0,8);
+  const l=$('lens');
+  l.classList.remove('jelly');
+  for(let i=0;i<els.length;i++)els[i].style.animation='none';
+  void p.offsetWidth;                                     /* the single forced layout */
+  l.classList.add('jelly');
+  for(let i=0;i<els.length;i++){const e=els[i];e.style.animation='';e.style.animationDelay=(i*55)+'ms'}
+}
+let pos=0,press=false,moved=false,sx=0,lastIdx=0;
+const clamp=v=>Math.max(0,Math.min(N-1,v));
+function render(anim){
+  /* Read pass: the only thing the writes below need from layout is which tab is
+     current, so nothing here measures the DOM. The lens position used to read
+     `tabs.clientWidth` on every frame — a forced layout per drag frame, and one
+     on the boot path before the shell had ever been laid out. Its own width is
+     calc((100% - 10px)/3) of the strip, so a percentage translate lands on the
+     exact same pixel as `pos * (tabs.clientWidth - 10) / 3` without measuring. */
+  const idx=Math.round(pos);
+  const change=idx!==lastIdx;
+  const was=lastIdx;
+  lastIdx=idx;
+  /* Write pass */
+  $('app').classList.toggle('drag',!anim);
+  P.forEach((p,i)=>{const d=i-pos,a=Math.min(1,Math.abs(d));p.style.transform=`translateX(${d*100}%) scale(${1-a*.05})`;p.style.opacity=1-a*.4;p.inert=Math.abs(d)>.45;p.style.pointerEvents=Math.abs(d)>.45?'none':''});
+  $('lens').style.transform=`translateX(${pos*100}%) scale(${press?1.18:1})`;
+  tabEls.forEach((t,i)=>t.classList.toggle('on',i===idx));
+  if(change){replay(P[idx]);if(idx!==was)pageSwitch(was,idx)}
+}
+/* The active tab changed. Any request on the wire that belongs to a page which is
+   not the one now on screen is abandoned, and the page being entered re-drives
+   what it never got — nothing new is requested on a page that is already
+   complete, and a page that is not on screen holds no request. */
+function pageSwitch(from,to){
+  rqAbandon(T[to]);
+  if(to===1)exploreResume();
+  else if(to===0)homeResume();
+}
+const at=e=>{const r=tabs.getBoundingClientRect();return clamp((e.clientX-r.left-5)/((r.width-10)/N)-.5)};
+tabs.addEventListener('pointerdown',e=>{press=true;moved=false;sx=e.clientX;try{tabs.setPointerCapture(e.pointerId)}catch(_){}const n=Math.round(at(e));if(n===Math.round(pos))P[n].scrollTo({top:0,behavior:'smooth'});pos=n;render(true)});
+tabs.addEventListener('pointermove',e=>{if(!press)return;if(Math.abs(e.clientX-sx)>5)moved=true;if(moved){pos=at(e);render(false)}});
+const rel=()=>{if(!press)return;press=false;pos=Math.round(pos);render(true)};
+tabs.addEventListener('pointerup',rel);tabs.addEventListener('pointercancel',rel);
+tabs.addEventListener('click',e=>{const t=e.target.closest('.tab');if(t){const n=+t.dataset.i;if(n!==Math.round(pos)){pos=n;render(true)}}});
+tabs.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){pos=+e.target.dataset.i;render(true)}});
+function go(n){pos=n;render(true)}
+addEventListener('resize',()=>render(true));
+render(true);
+</script><script type="text/css" id="lt-css-deferred">
+/* Deferred sheet: everything that cannot be on screen before the first frame
+   (cards, carousels, sheets, settings, results). It is kept inline because the
+   WebView serves this single asset, but it is held out of the CSSOM until after
+   the first frame so the splash and shell paint without waiting for all 21 KB
+   of CSS. Injected by the boot stub below; reveal() also forces it in case the
+   frame callback never runs. */
+
+#feed,#subfeed,#chlist,#animefeed,#cartoonfeed,#moviesfeed,#results,#ex{perspective:1500px;perspective-origin:50% 40%}
+.thumb img{will-change:transform;transform:scale(1.14);transition:transform .12s linear}
+html[data-parallax=off] .thumb img{transform:none!important;transition:none}
+.card{margin:6px 14px 18px;text-align:left;display:block;width:calc(100% - 28px);
+  transform-style:preserve-3d;transform:translateZ(0);
+  transition:transform .55s var(--bounce),box-shadow .35s ease;
+  will-change:transform}
+.card.tilt{transition:transform .08s linear,box-shadow .2s ease}
+.card .thumb{transform:translateZ(0)}
+.card .meta{transform:translateZ(18px)}
+.card.tilt .thumb{box-shadow:0 26px 46px -18px rgba(10,12,26,.45)}
+html[data-depth=off] .card,html[data-depth=off] .card .meta{transform:none!important;transition:none}
+.thumb{aspect-ratio:16/9;border-radius:24px;position:relative;overflow:hidden;box-shadow:0 12px 30px var(--shade)}
+.thumb u{position:absolute;right:10px;bottom:10px;padding:2px 7px;border-radius:7px;background:#000a;color:#fff;font-size:11px;text-decoration:none}
+.meta{display:flex;gap:10px;padding:10px 4px}
+.av{flex:none;width:36px;height:36px;border-radius:50%}
+.meta b{font-size:15px;line-height:1.25;display:block}.meta span{font-size:12.5px;color:var(--mute)}
+.vh{display:flex;justify-content:space-between;align-items:center;padding:16px 14px 8px}.vh h2{padding:0}
+.va{padding:7px 14px;border-radius:99px;font-size:12px;font-weight:700}
+.car{display:flex;gap:12px;overflow-x:auto;padding:0 14px 6px;scroll-snap-type:x mandatory;scrollbar-width:none}.car::-webkit-scrollbar{display:none}
+.big{flex:none;width:86%;aspect-ratio:4/4.3;border-radius:30px;scroll-snap-align:center;position:relative;overflow:hidden;color:#fff;text-align:left;box-shadow:0 14px 34px var(--shade)}
+.big:after{content:"";position:absolute;inset:0;background:linear-gradient(transparent 45%,#000d)}
+.big div{position:absolute;left:16px;right:96px;bottom:16px;z-index:2}
+.big b{font-size:17px;line-height:1.25;display:block}.big small{font-size:12px;opacity:.75}
+.big .play{position:absolute;right:14px;bottom:14px;z-index:3;padding:8px 15px;border-radius:99px;font-size:13px;font-weight:700;color:#fff;display:flex;gap:5px;align-items:center}
+.big .play svg{width:13px;height:13px;fill:#fff}
+.dots{display:flex;gap:6px;justify-content:center;padding:6px}.dots i{width:6px;height:6px;border-radius:50%;background:var(--mute);opacity:.4;transition:.25s}.dots i.on{opacity:1;background:var(--ink);transform:scale(1.25)}
+input[type=range]{width:100%;appearance:none;-webkit-appearance:none;height:5px;border-radius:9px;background:linear-gradient(90deg,var(--ink) var(--p,0%),rgba(128,128,140,.35) var(--p,0%));outline:0;position:relative;z-index:1}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 2px 8px #0006,inset 0 -2px 3px #0002}
+input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radius:50%;background:#fff}
+.sg{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:6px 14px 10px}
+.sg button{text-align:center;font-size:11.5px;font-weight:600}.sg i{display:block;width:100%;aspect-ratio:1;border-radius:50%;margin-bottom:6px;box-shadow:0 6px 16px var(--shade);transition:transform .3s,outline-color .3s;outline:3px solid transparent;outline-offset:2px}.sg .on i{outline-color:var(--red);transform:scale(.92)}
+/* ===== overlays ===== */
+#search{position:absolute;inset:0;z-index:30;background:var(--bg);opacity:0;pointer-events:none;transform:translateY(80px) scale(.94);transition:transform .85s var(--bounce),opacity .3s ease;padding:calc(env(safe-area-inset-top,0px) + 14px) 14px;overflow:auto}
+#search.on{opacity:1;pointer-events:auto;transform:none}
+.sbar{display:flex;gap:10px;align-items:center}.sbar label{flex:1;display:flex;gap:8px;align-items:center;height:46px;border-radius:99px;padding:0 14px}
+.sbar input{flex:1;background:none;border:0;outline:0;font:inherit;color:inherit;font-size:16px;min-width:0}
+.sbar>button{font-weight:600;color:var(--red)}
+.sug{display:flex;flex-wrap:wrap;gap:8px;padding:16px 0}.sug button{padding:8px 14px;border-radius:99px;font-size:13px;font-weight:600}
+.res{display:flex;gap:12px;padding:10px 0;text-align:left;width:100%}.res .thumb{width:44%;flex:none;border-radius:16px}.res b{font-size:14px;line-height:1.3}
+.empty{padding:40px 10px;text-align:center;color:var(--mute);font-size:14px}
+#scrim{position:absolute;inset:0;z-index:38;background:#0006;opacity:0;pointer-events:none;transition:opacity .35s}#scrim.on{opacity:1;pointer-events:auto}
+#pl,#sheet{position:absolute;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);z-index:40;padding:16px;border-radius:34px;display:flex;flex-direction:column;gap:8px;text-align:left;transform:translateY(125%);transition:transform .9s var(--bounce)}
+#pl.on,#sheet.on{transform:none}
+#pl b{font-size:16px;line-height:1.3}#pl>span,.tm{font-size:12.5px;color:var(--mute)}.tm{display:flex;justify-content:space-between}
+.prow{display:flex;gap:10px;margin-top:4px}.prow button{flex:1;height:46px;border-radius:99px;font-weight:700}
+nav.dock{transition:transform .5s var(--bounce),box-shadow .4s ease}
+nav.dock:active{transform:scale(.985)}
+#sheet{transform-origin:50% 100%;transform:translateY(14px) rotateX(9deg) scale(.97);opacity:0;transition:transform .6s var(--bounce),opacity .35s ease}
+#sheet.on{transform:none;opacity:1}
+html[data-depth=off] nav.dock,html[data-depth=off] #sheet{transform:none!important}
+#sheet{max-height:84%;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 84px)}#sheet h3{font-size:17px;text-align:center;padding-bottom:4px}
+#shb{overflow:auto;display:flex;flex-direction:column;gap:12px;max-height:56vh;padding-bottom:6px}
+.cm{display:flex;gap:10px;font-size:13.5px;line-height:1.35}.cm .av{width:30px;height:30px}.cm small{color:var(--mute);display:block;font-size:11.5px}
+.nt{display:flex;gap:10px;align-items:center;font-size:13.5px}.nt .av{width:40px;height:40px}
+.opt{height:48px;border-radius:99px;font-weight:700}
+#shi{display:none;gap:8px}#shi.on{display:flex}#shi input{flex:1;height:44px;border-radius:99px;padding:0 16px;border:0;outline:0;font:inherit;font-size:15px;color:inherit}
+#shi button{padding:0 18px;border-radius:99px;font-weight:700;color:var(--red)}
+#toast{position:absolute;top:calc(env(safe-area-inset-top,0px) + 12px);left:50%;transform:translate(-50%,-90px);z-index:60;padding:11px 18px;border-radius:99px;font-size:13.5px;font-weight:600;transition:transform .85s var(--bounce);white-space:nowrap;max-width:90%}
+#toast.on{transform:translate(-50%,0)}
+/* ---- settings rows ---- */
+.setrow{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border-radius:16px;background:rgba(120,120,140,.10);margin-bottom:10px;font-size:14px}
+.setrow input[type=range]{-webkit-appearance:none;appearance:none;width:58%;height:6px;border-radius:99px;background:linear-gradient(90deg,var(--red) var(--p,45%),rgba(120,120,140,.25) var(--p,45%));outline:none}
+.setrow input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.25);border:0}
+.laychips{display:flex;gap:8px;margin:2px 0 14px}
+.laychips button{flex:1;padding:11px 8px;border-radius:14px;background:rgba(120,120,140,.12);font-size:13px;font-weight:700;color:var(--ink);transition:background .3s,color .3s,scale .55s var(--bounce)}
+.laychips button.on{background:#111;color:#fff}
+/* ---- LiquidTube additions (same language as the shell) ---- */
+.thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.av{overflow:hidden}.av img{width:100%;height:100%;object-fit:cover;display:block}
+.card .thumb u{position:absolute;right:8px;bottom:8px;z-index:2}
+.big{position:relative;display:block;overflow:hidden}
+.big img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
+.big>div{position:absolute;left:14px;right:110px;bottom:14px;z-index:2;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.55)}
+.big>div b{display:block;font-size:15px;line-height:1.25;max-height:2.6em;overflow:hidden}
+.big>div small{display:block;font-size:12px;opacity:.85;margin-top:3px}
+.big:before{content:"";position:absolute;inset:auto 0 0;height:55%;z-index:1;background:linear-gradient(transparent,rgba(0,0,0,.55))}
+.big .play{position:absolute;right:12px;bottom:12px;z-index:3}
+.chh{display:flex;gap:12px;align-items:center;margin:4px 0 12px}
+.chh img,.chh .av{width:62px;height:62px;border-radius:50%;object-fit:cover;flex:none}
+.chh b{font-size:17px}
+.mt2{font-size:12.5px;color:var(--mute);margin-top:3px}
+.about{margin:10px 0;border-radius:18px;padding:10px 14px;background:rgba(120,120,140,.10)}
+.about div{display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:5px 0;color:var(--mute)}
+.about b{color:var(--ink);font-weight:700}
+.desc{font-size:13.5px;line-height:1.5;color:var(--ink);opacity:.86;max-height:132px;overflow:hidden;position:relative;margin-bottom:10px}
+.desc:after{content:"";position:absolute;inset:auto 0 0;height:42px;background:linear-gradient(transparent,var(--bg))}
+#chlist .card,#shb .card{margin-bottom:12px}
+#sg button{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:var(--mute);width:74px;flex:none}
+#sg button img,#sg button i{width:58px;height:58px;border-radius:50%;object-fit:cover;display:block;border:2px solid transparent}
+#sg button.on img,#sg button.on i{border-color:var(--red)}
+#sg button.on{color:var(--ink);font-weight:700}
+#sg{display:flex;gap:14px;overflow-x:auto;padding:8px 14px 12px;scrollbar-width:none}
+#sg::-webkit-scrollbar{display:none}
+#shb{padding-bottom:10px}
+.card:active{scale:.97}
+.card,.big,.res,.cm,.setrow,.laychips,.opt,.about,.chh,.empty{animation:rise .85s var(--bounce) backwards}
+.card{animation-delay:calc(var(--i,0)*60ms)}
+.car>:nth-child(2),#shb>:nth-child(2),#results>:nth-child(2){animation-delay:.06s}
+.car>:nth-child(3),#shb>:nth-child(3),#results>:nth-child(3){animation-delay:.12s}
+.car>:nth-child(4),#shb>:nth-child(4),#results>:nth-child(4){animation-delay:.18s}
+#shb>:nth-child(5),#results>:nth-child(5){animation-delay:.24s}
+#shb>:nth-child(6),#results>:nth-child(6){animation-delay:.3s}
+#shb>:nth-child(n+7),#results>:nth-child(n+7){animation-delay:.36s}
+input[type=range]::-webkit-slider-thumb{transition:scale .4s var(--bounce)}
+input[type=range]:active::-webkit-slider-thumb{scale:1.3}
+.prow{flex-wrap:wrap}.prow button{min-width:calc(33% - 8px);font-size:13px;padding:0 6px}</script>
+<script>
+/* Apply the deferred sheet in the first idle slot after the splash is painted,
+   and at the latest when the shell is revealed. Nothing the user can see before
+   the splash leaves depends on it. */
+(function(){var src=document.getElementById('lt-css-deferred');if(!src)return;var done=0;
+function apply(){if(done)return;done=1;var s=document.createElement('style');s.id='lt-css-rest';
+s.textContent=src.textContent;(document.head||document.documentElement).appendChild(s);}
+window.__ltRestNow=apply;
+function idle(){if(window.requestIdleCallback)requestIdleCallback(apply,{timeout:800});
+else setTimeout(apply,60);}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',idle,{once:true});
+else idle();setTimeout(apply,3000);})();
+</script>
+</body></html>
