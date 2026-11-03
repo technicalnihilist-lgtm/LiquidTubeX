@@ -152,10 +152,30 @@ public class MainActivity extends Activity {
         chrome = new Chrome();
         web.setWebChromeClient(chrome);
 
+        installExtractorBridge(web);
+
         if (state != null) {
             web.restoreState(state);
         } else {
             web.loadUrl(START_URL);
+        }
+    }
+
+    /**
+     * Attaches the NewPipeExtractor bridge. The bridge class lives in the
+     * java-extractor source set, which only the Gradle build compiles, so it is
+     * looked up reflectively: build.sh produces an APK without the extractor and
+     * this block quietly does nothing there.
+     */
+    private void installExtractorBridge(WebView view) {
+        try {
+            Class<?> bridge = Class.forName("com.liquidtubex.app.ExtractorBridge");
+            bridge.getMethod("init").invoke(null);
+            Object instance = bridge.getConstructor(WebView.class).newInstance(view);
+            view.addJavascriptInterface(instance, "LiquidTubeX");
+            Log.i(TAG, "extractor bridge attached");
+        } catch (Throwable t) {
+            Log.i(TAG, "extractor bridge unavailable: " + t);
         }
     }
 
