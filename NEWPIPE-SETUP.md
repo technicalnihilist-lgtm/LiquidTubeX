@@ -47,11 +47,14 @@ that and would break `build.sh`.
 
 ## The two ways to depend on the extractor — pick one
 
-**1. Published snapshot (default, nothing to uncomment).**
-`settings.gradle.kts` already declares
-`https://central.sonatype.com/repository/maven-snapshots/`, limited to the
-`net.newpipe` group, and `app/build.gradle.kts` declares
-`implementation("net.newpipe:extractor:${extractorVersion}")`.
+**1. JitPack release (default, nothing to uncomment).**
+`settings.gradle.kts` declares `https://jitpack.io`, limited to the
+`com.github.teamnewpipe` group, and `app/build.gradle.kts` declares
+`implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")`.
+
+The alternative is a Maven Central snapshot: `settings.gradle.kts` also declares
+`https://central.sonatype.com/repository/maven-snapshots/` for the `net.newpipe`
+group, and `gradle.properties` carries the `extractorVersion` hash for it.
 
 **2. Local source checkout (composite build).**
 Uncomment the `includeBuild("../NewPipeExtractor")` block in
@@ -64,8 +67,8 @@ Notes on the block as it is written:
 - `repositories { }` is not valid inside `dependencySubstitution { }`. An
   included build brings its own repositories and its own dependency graph.
 - `substitute(module(...))` must name the coordinate the app actually declares,
-  i.e. `net.newpipe:extractor` — not the JitPack `com.github.teamnewpipe:...`
-  one, or the substitution silently never matches.
+  i.e. `com.github.teamnewpipe:NewPipeExtractor`, or the substitution silently
+  never matches.
 - `includeBuild` only accepts a path that exists. If `../NewPipeExtractor` is
   missing, configuration fails, which is why the block ships commented out.
 

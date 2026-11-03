@@ -12,8 +12,16 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
 
-        // Maven Central's snapshot repository. Restricted to the net.newpipe group
-        // so snapshots can never leak into the rest of the dependency graph.
+        // JitPack builds NewPipeExtractor on demand from its GitHub tag.
+        maven(url = "https://jitpack.io") {
+            content {
+                includeGroup("com.github.teamnewpipe")
+            }
+        }
+
+        // Maven Central's snapshot repository. Unused by the app now that it
+        // pins the JitPack tag, kept for the snapshot route in gradle.properties.
+        // Restricted to net.newpipe so snapshots cannot leak into the graph.
         maven(url = "https://central.sonatype.com/repository/maven-snapshots/") {
             content {
                 includeGroup("net.newpipe")
@@ -22,7 +30,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "LiquidTube"
+rootProject.name = "LiquidTubeX"
 include(":app")
 
 // ---------------------------------------------------------------------------
@@ -39,7 +47,7 @@ include(":app")
 // ---------------------------------------------------------------------------
 // includeBuild("../NewPipeExtractor") {
 //     dependencySubstitution {
-//         substitute(module("net.newpipe:extractor"))
+//         substitute(module("com.github.teamnewpipe:NewPipeExtractor"))
 //             .using(project(":extractor"))
 //     }
 // }

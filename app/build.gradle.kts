@@ -55,9 +55,7 @@ android {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
-    // Version comes from gradle.properties (extractorVersion).
-    // If the includeBuild() block in settings.gradle.kts is enabled, Gradle
-    // substitutes this module with the locally built :extractor project and the
-    // version string is ignored.
-    implementation("net.newpipe:extractor:${property("extractorVersion")}")
+    // NewPipeExtractor, built by JitPack from the v0.26.5 tag.
+    // The repositories for this live in settings.gradle.kts, not here.
+    implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
 }
